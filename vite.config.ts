@@ -9,6 +9,8 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // 開發/預覽用：允許任意 host（雲端預覽網址每次都不同）。正式版走 file://，不受影響。
+    allowedHosts: true,
   },
   build: {
     outDir: 'dist',
