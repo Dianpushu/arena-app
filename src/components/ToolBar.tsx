@@ -11,6 +11,7 @@ interface Props {
   onReload: () => void;
   onHome: () => void;
   onNavigate: (url: string) => void;
+  onError: (message: string) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
@@ -37,14 +38,17 @@ export default function ToolBar(props: Props) {
       inputRef.current?.focus();
       inputRef.current?.select();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.urlFocusToken]);
 
   const commit = () => {
     setEditing(false);
-    const url = normalizeUserInput(draft);
-    setDraft(url);
-    if (url !== tab?.url) props.onNavigate(url);
+    try {
+      const url = normalizeUserInput(draft);
+      setDraft(url);
+      if (url !== tab?.url) props.onNavigate(url);
+    } catch (err) {
+      props.onError(err instanceof Error ? err.message : '網址無效');
+    }
     inputRef.current?.blur();
   };
 
@@ -68,7 +72,10 @@ export default function ToolBar(props: Props) {
       </div>
 
       <div className={`urlbar${editing ? ' editing' : ''}`}>
-        <span className={`lock${secure ? ' secure' : ''}`} title={secure ? '安全連線' : '非加密連線'}>
+        <span
+          className={`lock${secure ? ' secure' : ''}`}
+          title={secure ? '安全連線' : '非加密連線'}
+        >
           {secure ? '🔒' : '⚠️'}
         </span>
         <input
@@ -92,11 +99,7 @@ export default function ToolBar(props: Props) {
           }}
         />
         {tab && tab.zoomPercent !== 100 && (
-          <button
-            className="zoom-pill"
-            title="重設縮放 (Ctrl+0)"
-            onClick={props.onZoomReset}
-          >
+          <button className="zoom-pill" title="重設縮放 (Ctrl+0)" onClick={props.onZoomReset}>
             {tab.zoomPercent}%
           </button>
         )}
@@ -112,7 +115,11 @@ export default function ToolBar(props: Props) {
         <button title="用系統瀏覽器開啟這一頁" onClick={props.onOpenExternal}>
           ↗
         </button>
-        <UpdateButton update={update} onCheck={props.onCheckUpdate} onInstall={props.onQuitAndInstall} />
+        <UpdateButton
+          update={update}
+          onCheck={props.onCheckUpdate}
+          onInstall={props.onQuitAndInstall}
+        />
         <button title="設定" className="gear" onClick={props.onOpenSettings}>
           ⚙
         </button>

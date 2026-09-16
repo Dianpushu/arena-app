@@ -27,6 +27,7 @@ export default function App() {
   const [urlFocusToken, setUrlFocusToken] = useState(0);
 
   const activeTab = tabs.find((t) => t.active);
+  const settingsVisible = settingsOpen && settings !== null;
 
   const notify = useCallback((text: string) => {
     setNotice({ id: noticeSeq++, text });
@@ -66,6 +67,20 @@ export default function App() {
     };
   }, []);
 
+  // WebContentsView 不受 CSS z-index 控制；讓主進程同步原生視圖可見性。
+  useEffect(() => {
+    void arena.settings.setOpen(settingsVisible).catch((err) => {
+      console.error('[settings] could not update native view visibility:', err);
+      if (settingsVisible) {
+        setSettingsOpen(false);
+        notify('無法開啟設定，請重試');
+      }
+    });
+    return () => {
+      void arena.settings.setOpen(false).catch(console.error);
+    };
+  }, [settingsVisible, notify]);
+
   const newTab = useCallback(() => {
     void arena.tabs.create().then(() => setUrlFocusToken((n) => n + 1));
   }, []);
@@ -75,9 +90,12 @@ export default function App() {
     if (!isDesktop) return;
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
-      if (e.key === 'Escape' && settingsOpen) {
-        setSettingsOpen(false);
-        return;
+      if (settingsOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setSettingsOpen(false);
+        }
+        return; // 設定輸入時不要觸發分頁／縮放快捷鍵
       }
       if (!mod && !e.altKey) {
         if (e.key === 'F5') {
@@ -121,11 +139,14 @@ export default function App() {
 
   const patchSettings = useCallback(
     (patch: Partial<AppSettings>) => {
-      void arena.settings.set(patch).then(({ settings: s, shortcutError: err }) => {
-        setSettings(s);
-        setShortcutError(err);
-        if (err) notify(err);
-      });
+      void arena.settings
+        .set(patch)
+        .then(({ settings: s, shortcutError: err }) => {
+          setSettings(s);
+          setShortcutError(err);
+          if (err) notify(err);
+        })
+        .catch((err) => notify(String(err)));
     },
     [notify],
   );
@@ -145,6 +166,7 @@ export default function App() {
           onCloseWindow={() => void arena.window.close()}
         />
         <ToolBar
+          onError={notify}
           tab={activeTab}
           update={update}
           urlFocusToken={urlFocusToken}
@@ -155,13 +177,15 @@ export default function App() {
             if (activeTab && settings) void arena.tabs.navigate(activeTab.id, settings.homepage);
           }}
           onNavigate={(url) => {
-            if (activeTab) void arena.tabs.navigate(activeTab.id, url);
+            if (activeTab)
+              void arena.tabs.navigate(activeTab.id, url).catch((err) => notify(String(err)));
           }}
           onZoomIn={() => void arena.tabs.zoomIn()}
           onZoomOut={() => void arena.tabs.zoomOut()}
           onZoomReset={() => void arena.tabs.zoomReset()}
           onOpenExternal={() => {
-            if (activeTab) void arena.app.openExternal(activeTab.url);
+            if (activeTab)
+              void arena.app.openExternal(activeTab.url).catch((err) => notify(String(err)));
           }}
           onCheckUpdate={() => void arena.app.checkUpdate()}
           onQuitAndInstall={() => void arena.app.quitAndInstall()}
@@ -205,8 +229,15 @@ export default function App() {
         onCheckUpdate={() => void arena.app.checkUpdate()}
         onQuitAndInstall={() => void arena.app.quitAndInstall()}
         onClearData={() => {
-          if (window.confirm('確定要清除所有瀏覽資料嗎？這會登出 arena.ai 並刪除 Cookie。')) {
-            void arena.app.clearData().then(() => notify('已清除瀏覽資料'));
+          if (
+            window.confirm(
+              '確定要清除所有瀏覽資料嗎？這會登出網站、重建所有分頁，並清除未送出的輸入。',
+            )
+          ) {
+            void arena.app
+              .clearData()
+              .then(() => notify('已清除瀏覽資料'))
+              .catch((err) => notify(String(err)));
           }
         }}
       />

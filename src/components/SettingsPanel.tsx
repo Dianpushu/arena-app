@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { normalizeUrl } from '../../electron/url-policy';
 import type { AppSettings, UpdateStatus } from '../api';
 
 interface Props {
@@ -69,6 +70,7 @@ function eventToAccelerator(e: React.KeyboardEvent): string | null {
 export default function SettingsPanel(props: Props) {
   const { open, settings } = props;
   const [homepageDraft, setHomepageDraft] = useState('');
+  const [homepageError, setHomepageError] = useState('');
 
   useEffect(() => {
     if (open && settings) setHomepageDraft(settings.homepage);
@@ -78,9 +80,14 @@ export default function SettingsPanel(props: Props) {
 
   const commitHomepage = () => {
     const v = homepageDraft.trim() || 'https://arena.ai';
-    const url = /^\w+:\/\//.test(v) ? v : `https://${v}`;
-    setHomepageDraft(url);
-    if (url !== settings.homepage) props.onChange({ homepage: url });
+    try {
+      const url = normalizeUrl(v);
+      setHomepageError('');
+      setHomepageDraft(url);
+      if (url !== settings.homepage) props.onChange({ homepage: url });
+    } catch {
+      setHomepageError('首頁只允許有效的 HTTP / HTTPS 網址');
+    }
   };
 
   const updateText = (() => {
@@ -102,12 +109,42 @@ export default function SettingsPanel(props: Props) {
     }
   })();
 
+  const onDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      props.onClose();
+    } else if (e.key === 'Tab') {
+      const controls = Array.from(
+        e.currentTarget.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]',
+        ),
+      ).filter((el) => el.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
+      }
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        onKeyDown={onDialogKeyDown}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-head">
-          <h2>設定</h2>
-          <button className="modal-x" onClick={props.onClose}>
+          <h2 id="settings-title">設定</h2>
+          <button className="modal-x" autoFocus aria-label="關閉設定" onClick={props.onClose}>
             ✕
           </button>
         </div>
@@ -185,6 +222,7 @@ export default function SettingsPanel(props: Props) {
               readOnly
               spellCheck={false}
               onKeyDown={(e) => {
+                if (e.key === 'Tab' || e.key === 'Escape') return;
                 e.preventDefault();
                 const acc = eventToAccelerator(e);
                 if (acc) props.onChange({ globalShortcut: acc });
@@ -196,6 +234,11 @@ export default function SettingsPanel(props: Props) {
           {props.shortcutError && <div className="error">{props.shortcutError}</div>}
 
           <h3>瀏覽</h3>
+          {homepageError && (
+            <div className="error" role="alert">
+              {homepageError}
+            </div>
+          )}
           <div className="row">
             <span className="row-text">
               <span className="row-label">新分頁預設縮放：{settings.defaultZoomPercent}%</span>
@@ -216,6 +259,7 @@ export default function SettingsPanel(props: Props) {
             </span>
             <input
               className="text-input"
+              aria-invalid={!!homepageError}
               value={homepageDraft}
               spellCheck={false}
               onChange={(e) => setHomepageDraft(e.target.value)}
@@ -256,8 +300,8 @@ export default function SettingsPanel(props: Props) {
             打造：多分頁、系統匣常駐、全域快捷鍵與自動更新。
           </p>
           <p className="muted shortcuts-hint">
-            快捷鍵：Ctrl+T 開新分頁 · Ctrl+W 關閉分頁 · Ctrl+R 重新整理 · Ctrl+L
-            聚焦網址列 · Ctrl+＋/－/0 縮放 · Alt+←/→ 上一頁/下一頁
+            快捷鍵：Ctrl+T 開新分頁 · Ctrl+W 關閉分頁 · Ctrl+R 重新整理 · Ctrl+L 聚焦網址列 ·
+            Ctrl+＋/－/0 縮放 · Alt+←/→ 上一頁/下一頁
           </p>
         </div>
       </div>

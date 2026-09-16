@@ -26,6 +26,7 @@ export type CloseBehavior = 'tray' | 'quit';
 export type AppTheme = 'arena' | 'dark';
 
 export interface AppSettings {
+  settingsVersion: 1;
   theme: AppTheme;
   /** 按下視窗關閉鈕的行為：tray = 縮到系統匣，quit = 直接結束 */
   closeBehavior: CloseBehavior;
@@ -43,6 +44,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  settingsVersion: 1,
   theme: 'arena',
   closeBehavior: 'tray',
   launchAtStartup: false,
@@ -56,13 +58,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 export type UpdateState =
-  | 'idle'
-  | 'checking'
-  | 'available'
-  | 'downloading'
-  | 'downloaded'
-  | 'uptodate'
-  | 'error';
+  'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'uptodate' | 'error';
 
 export interface UpdateStatus {
   state: UpdateState;
@@ -98,8 +94,12 @@ export interface ArenaAPI {
     onMaximized: (cb: (max: boolean) => void) => () => void;
   };
   settings: {
+    /** 暫時隱藏原生網頁內容，讓本機設定面板可見；不寫入使用者設定。 */
+    setOpen: (open: boolean) => Promise<void>;
     get: () => Promise<AppSettings>;
-    set: (patch: Partial<AppSettings>) => Promise<{ settings: AppSettings; shortcutError: string | null }>;
+    set: (
+      patch: Partial<AppSettings>,
+    ) => Promise<{ settings: AppSettings; shortcutError: string | null }>;
     onChanged: (cb: (s: AppSettings) => void) => () => void;
   };
   app: {

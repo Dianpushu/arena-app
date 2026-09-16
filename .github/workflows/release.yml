@@ -1,0 +1,107 @@
+name: Release Windows
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '必須與選定分支的 package.json version 完全一致'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      beta: ${{ steps.version.outputs.beta }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const { version } = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (!/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(version)) throw new Error('Invalid release version');
+          if (process.env.GITHUB_REF.startsWith('refs/tags/') && process.env.GITHUB_REF !== `refs/tags/v${version}`) throw new Error('Tag/version mismatch');
+          if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' && process.env.REQUESTED_VERSION !== version) throw new Error('Requested version mismatch');
+          if (!fs.existsSync(`release-notes/v${version}.md`)) throw new Error('Missing version-specific release notes');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nbeta=${version.includes('-beta.')}\n`);
+          JS
+
+  checks:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  package:
+    needs: [verify, checks]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist-release/*.exe
+            dist-release/*.yml
+            dist-release/*.blockmap
+
+  publish:
+    needs: [verify, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installers
+          path: dist-release
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          BETA: ${{ needs.verify.outputs.beta }}
+        run: |
+          set -euo pipefail
+          channel=latest
+          flags=()
+          if [ "$BETA" = true ]; then
+            channel=beta
+            flags+=(--prerelease --latest=false)
+          fi
+          setup="dist-release/Arena-Setup-$VERSION.exe"
+          portable="dist-release/Arena-$VERSION-portable.exe"
+          metadata="dist-release/$channel.yml"
+          for asset in "$setup" "$portable" "$metadata" "$setup.blockmap"; do
+            test -s "$asset"
+          done
+          gh release create "v$VERSION" "$setup" "$portable" "$metadata" "$setup.blockmap" \
+            --target "$GITHUB_SHA" "${flags[@]}" --title "Arena v$VERSION" \
+            --notes-file "release-notes/v$VERSION.md"

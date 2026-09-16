@@ -1,6 +1,10 @@
-import { app, BrowserWindow, WebContentsView } from 'electron';
+import { app, BrowserWindow, WebContentsView, WebContents } from 'electron';
 import * as path from 'node:path';
-import { DEFAULT_HOMEPAGE, TabInfo, VIEW_TOP_OFFSET } from './shared';
+import { pathToFileURL } from 'node:url';
+import { normalizeUrl, isHttpUrl, isSameDocument } from './url-policy';
+import { guardWebNavigation } from './navigation';
+import { moveTabOrder, nextZoom } from './tab-utils';
+import { AppTheme, DEFAULT_HOMEPAGE, TabInfo, VIEW_TOP_OFFSET } from './shared';
 import { loadSettings } from './settings';
 import { attachContextMenu } from './context-menu';
 
@@ -18,8 +22,6 @@ function offlinePagePath(): string {
 /** 斷線以外的載入失敗都導向離線頁；-3（ERR_ABORTED）通常是 SPA 內部跳轉，直接忽略。 */
 const ERR_ABORTED = -3;
 
-const ZOOM_STEPS = [25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500];
-
 interface Tab {
   id: number;
   view: WebContentsView;
@@ -32,13 +34,16 @@ let nextId = 1;
 
 export interface TabHooks {
   onChanged: () => void;
-  onOpenPopup: (url: string) => void;
+  onPersist: () => void;
+  onOpenPopup: (url: string, sourceTabId: number) => void;
 }
 
 export class TabManager {
   private tabs = new Map<number, Tab>();
   private order: number[] = [];
   private activeId = -1;
+  private contentObscured = false;
+  private clearing = false;
 
   constructor(
     private win: BrowserWindow,
@@ -49,16 +54,18 @@ export class TabManager {
   // ---------- 建立 / 關閉 / 切換 ----------
 
   createTab(rawUrl?: string, opts: { activate?: boolean } = {}): number {
+    if (this.clearing) throw new Error('正在清除瀏覽資料');
     const id = nextId++;
-    const url = normalizeUrl(rawUrl?.trim() ? rawUrl : loadSettings().homepage || DEFAULT_HOMEPAGE);
+    const url = normalizeUrl(rawUrl === undefined ? loadSettings().homepage : rawUrl);
 
     const view = new WebContentsView({
       webPreferences: {
         partition: ARENA_PARTITION,
         preload: this.preloadPath,
+        sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
-        backgroundThrottling: false,
+        backgroundThrottling: true,
         spellcheck: true,
       },
     });
@@ -79,6 +86,7 @@ export class TabManager {
     void view.webContents.loadURL(url).catch((err) => console.warn(`[tabs] load failed:`, err));
     this.layout();
     this.hooks.onChanged();
+    this.hooks.onPersist();
     return id;
   }
 
@@ -103,6 +111,7 @@ export class TabManager {
     }
     this.layout();
     this.hooks.onChanged();
+    this.hooks.onPersist();
   }
 
   activateTab(id: number): void {
@@ -115,14 +124,12 @@ export class TabManager {
   /** 拖曳排序：toIndex 是「拿掉被拖分頁之後」陣列的插入位置。 */
   moveTab(id: number, toIndex: number): void {
     if (!this.order.includes(id)) return;
-    const rest = this.order.filter((t) => t !== id);
-    const clamped = Math.max(0, Math.min(rest.length, toIndex));
-    const next = [...rest];
-    next.splice(clamped, 0, id);
+    const next = moveTabOrder(this.order, id, toIndex);
     // 順序沒變就不廣播，避免拖放抖動造成多餘渲染
     if (next.every((v, i) => v === this.order[i])) return;
     this.order = next;
     this.hooks.onChanged();
+    this.hooks.onPersist();
   }
 
   // ---------- 瀏覽操作（id 省略時作用於當前分頁） ----------
@@ -132,7 +139,11 @@ export class TabManager {
   }
 
   reload(id?: number): void {
-    this.target(id)?.view.webContents.reload();
+    const tab = this.target(id);
+    if (!tab || this.clearing) return;
+    if (isSameDocument(tab.view.webContents.getURL(), pathToFileURL(offlinePagePath()).href)) {
+      void tab.view.webContents.loadURL(tab.url).catch(console.error);
+    } else tab.view.webContents.reload();
   }
 
   reloadActive(): void {
@@ -150,11 +161,15 @@ export class TabManager {
   }
 
   navigate(id: number | undefined, rawUrl: string): void {
+    if (this.clearing) throw new Error('正在清除瀏覽資料');
     const t = this.target(id);
     if (!t) return;
     const url = normalizeUrl(rawUrl);
+    if (t.url !== url) this.hooks.onPersist();
     t.url = url;
-    void t.view.webContents.loadURL(url).catch((err) => console.warn('[tabs] navigate failed:', err));
+    void t.view.webContents
+      .loadURL(url)
+      .catch((err) => console.warn('[tabs] navigate failed:', err));
     if (id !== undefined) this.activeId = t.id;
     this.layout();
     this.hooks.onChanged();
@@ -179,22 +194,29 @@ export class TabManager {
     const t = this.target(id);
     if (!t) return;
     const current = Math.round(t.view.webContents.getZoomFactor() * 100);
-    const next =
-      dir === 1
-        ? ZOOM_STEPS.find((s) => s > current) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1]
-        : [...ZOOM_STEPS].reverse().find((s) => s < current) ?? ZOOM_STEPS[0];
+    const next = nextZoom(current, dir);
     t.view.webContents.setZoomFactor(next / 100);
     this.hooks.onChanged();
   }
 
   // ---------- 版面：只有當前分頁可見，佔滿工具列下方的區域 ----------
 
+  /** 原生子視圖永遠在 Renderer DOM 上方；顯示設定時必須隱藏，而非調整 CSS z-index。
+   * 保留 WebContents / session，關閉設定後恢復目前分頁，不重新載入網頁。 */
+  setContentObscured(obscured: boolean): void {
+    if (this.win.isDestroyed() || this.contentObscured === obscured) return;
+    this.contentObscured = obscured;
+    this.layout();
+    const target = obscured ? this.win.webContents : this.target()?.view.webContents;
+    if (target && !target.isDestroyed()) target.focus();
+  }
+
   layout(): void {
     if (this.win.isDestroyed()) return;
     const [w, h] = this.win.getContentSize();
     for (const [id, tab] of this.tabs) {
       const active = id === this.activeId;
-      tab.view.setVisible(active);
+      tab.view.setVisible(active && !this.contentObscured);
       if (active) {
         tab.view.setBounds({
           x: 0,
@@ -231,15 +253,61 @@ export class TabManager {
   allUrls(): string[] {
     return this.list()
       .map((t) => t.url)
-      .filter((u) => u.startsWith('http'));
+      .filter(isHttpUrl);
   }
 
   destroy(): void {
     for (const tab of this.tabs.values()) {
-      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+      if (!this.win.isDestroyed()) this.win.contentView.removeChildView(tab.view);
+      tab.view.webContents.removeAllListeners();
+      if (!tab.view.webContents.isDestroyed())
+        tab.view.webContents.close({ waitForBeforeUnload: false });
     }
     this.tabs.clear();
     this.order = [];
+    this.activeId = -1;
+  }
+
+  retryOffline(sender: WebContents, frame: Electron.WebFrameMain | null): void {
+    const tab = [...this.tabs.values()].find((t) => t.view.webContents === sender);
+    if (
+      !tab ||
+      frame !== sender.mainFrame ||
+      !frame ||
+      !isSameDocument(frame.url, pathToFileURL(offlinePagePath()).href)
+    ) {
+      throw new Error('Only the managed offline page may retry its own tab');
+    }
+    this.reload(tab.id);
+  }
+
+  updateTheme(theme: AppTheme): void {
+    for (const tab of this.tabs.values()) {
+      tab.view.setBackgroundColor(theme === 'dark' ? '#1c1917' : '#f5f0e8');
+      if (isSameDocument(tab.view.webContents.getURL(), pathToFileURL(offlinePagePath()).href)) {
+        void tab.view.webContents
+          .loadFile(offlinePagePath(), { query: { theme } })
+          .catch(console.error);
+      }
+    }
+  }
+
+  /** 先銷毀舊 document，清除期間不能再以記憶體內的 token／Cookie 寫回 storage。 */
+  async clearBrowsingData(clear: () => Promise<void>): Promise<void> {
+    if (this.clearing) throw new Error('正在清除瀏覽資料');
+    this.clearing = true;
+    const urls = this.allUrls();
+    const activeIndex = this.order.indexOf(this.activeId);
+    this.destroy();
+    this.hooks.onChanged();
+    try {
+      await clear();
+    } finally {
+      this.clearing = false;
+      (urls.length ? urls : [loadSettings().homepage]).forEach((url, index) => {
+        this.createTab(url, { activate: index === Math.max(0, activeIndex) });
+      });
+    }
   }
 
   // ---------- 事件接線 ----------
@@ -247,6 +315,14 @@ export class TabManager {
   private wireEvents(tab: Tab): void {
     const wc = tab.view.webContents;
     const emit = () => this.hooks.onChanged();
+    guardWebNavigation(wc);
+    const navigated = (url: string) => {
+      if (isHttpUrl(url) && tab.url !== url) {
+        tab.url = url;
+        this.hooks.onPersist();
+      }
+      emit();
+    };
 
     wc.on('page-title-updated', emit);
     wc.on('page-favicon-updated', (_e, favicons) => {
@@ -256,12 +332,10 @@ export class TabManager {
     wc.on('did-start-loading', emit);
     wc.on('did-stop-loading', emit);
     wc.on('did-navigate', (_e, url) => {
-      if (url.startsWith('http')) tab.url = url;
-      emit();
+      navigated(url);
     });
-    wc.on('did-navigate-in-page', (_e, url) => {
-      if (url.startsWith('http')) tab.url = url;
-      emit();
+    wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
+      if (isMainFrame) navigated(url);
     });
     wc.on('zoom-changed', emit);
 
@@ -284,14 +358,8 @@ export class TabManager {
     // target=_blank / window.open（例如 Google 登入彈窗）：一律用 App 內彈窗開啟，
     // 這樣 OAuth 回跳時 Cookie 還在同一個 session，登入才不會斷掉。
     wc.setWindowOpenHandler(({ url }) => {
-      this.hooks.onOpenPopup(url);
+      if (isHttpUrl(url)) this.hooks.onOpenPopup(url, tab.id);
       return { action: 'deny' };
     });
   }
-}
-
-export function normalizeUrl(input: string): string {
-  const trimmed = input.trim();
-  if (/^\w+:\/\//.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
 }
