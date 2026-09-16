@@ -7,6 +7,7 @@ export const VIEW_TOP_OFFSET = 88;
 
 export const DEFAULT_HOMEPAGE = 'https://arena.ai';
 export const DEFAULT_SHORTCUT = 'CommandOrControl+Shift+A';
+export const MAX_TABS = 32;
 
 export interface TabInfo {
   id: number;

@@ -36,7 +36,10 @@ async function compose(size) {
   const svg = (await fs.readFile(svgPath, 'utf8')).replaceAll('currentColor', MARK);
   const markSize = Math.round(size * MARK_RATIO);
   // 依目標尺寸提高渲染 density，讓向量直接輸出高解析點陣（避免先小圖再放大變糊）
-  const vb = svg.match(/viewBox="([\d.\-+eE\s]+)"/)?.[1].trim().split(/\s+/) ?? [0, 0, 512, 512];
+  const vb = svg
+    .match(/viewBox="([\d.\-+eE\s]+)"/)?.[1]
+    .trim()
+    .split(/\s+/) ?? [0, 0, 512, 512];
   const density = Math.max(72, Math.ceil((markSize / Number(vb[2])) * 72));
   const mark = await sharp(Buffer.from(svg), { density })
     .resize(markSize, markSize)

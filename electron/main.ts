@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session, Tray } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, session, Tray } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,7 +12,9 @@ import { appIconPng, createTray } from './tray';
 import { clearGlobalShortcuts, setGlobalShortcut } from './shortcuts';
 import { AppUpdater } from './updater';
 import { attachContextMenu } from './context-menu';
-import { AppSettings, DEFAULT_HOMEPAGE } from './shared';
+import { AppSettings, DEFAULT_HOMEPAGE, MAX_TABS } from './shared';
+import { isAllowedNotificationOrigin, isAllowedNotificationUrl } from './notification-policy';
+import { getVisibleWindowBounds } from './window-bounds';
 
 const isDev = !app.isPackaged && process.env.ARENA_DEV === '1';
 const VITE_URL = process.env.ARENA_VITE_URL ?? 'http://127.0.0.1:5173';
@@ -75,11 +77,13 @@ async function startup(): Promise<void> {
   const settings = loadSettings();
   applyLoginItem(settings);
 
+  const visibleBounds = getVisibleWindowBounds(settings.windowBounds, screen.getAllDisplays());
+
   win = new BrowserWindow({
-    width: settings.windowBounds?.width ?? 1280,
-    height: settings.windowBounds?.height ?? 800,
-    x: settings.windowBounds?.x,
-    y: settings.windowBounds?.y,
+    width: visibleBounds?.width ?? 1280,
+    height: visibleBounds?.height ?? 800,
+    x: visibleBounds?.x,
+    y: visibleBounds?.y,
     minWidth: 960,
     minHeight: 640,
     frame: false, // 自繪標題列 + 分頁列
@@ -106,12 +110,26 @@ async function startup(): Promise<void> {
   });
   win.webContents.on('will-attach-webview', (event) => event.preventDefault());
 
-  // 權限：通知開關由設定控制，其餘一律拒絕
-  session
-    .fromPartition(ARENA_PARTITION)
-    .setPermissionRequestHandler((_wc, permission, callback) => {
-      callback(permission === 'notifications' ? loadSettings().notificationsEnabled : false);
-    });
+  // 權限：通知僅允許 arena.ai / *.arena.ai，且受設定控制；其餘一律拒絕
+  const ses = session.fromPartition(ARENA_PARTITION);
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    if (permission !== 'notifications') {
+      callback(false);
+      return;
+    }
+    if (!loadSettings().notificationsEnabled) {
+      callback(false);
+      return;
+    }
+    const url = (details as { requestingUrl?: string }).requestingUrl ?? wc.getURL();
+    callback(isAllowedNotificationUrl(url));
+  });
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
+    if (permission !== 'notifications') return false;
+    if (!loadSettings().notificationsEnabled) return false;
+    if (!requestingOrigin) return false;
+    return isAllowedNotificationOrigin(requestingOrigin);
+  });
 
   updater = new AppUpdater((s) => win?.webContents.send('arena:update:status', s));
 
@@ -188,12 +206,22 @@ async function startup(): Promise<void> {
     });
   }
 
-  // 還原上次的分頁；沒有紀錄就開首頁
-  const restore =
+  // 還原上次的分頁；沒有紀錄就開首頁，並限制最大分頁數
+  const rawRestore =
     settings.restoreTabs.length > 0
       ? settings.restoreTabs
       : [settings.homepage || DEFAULT_HOMEPAGE];
-  restore.forEach((url, i) => tabs?.createTab(url, { activate: i === restore.length - 1 }));
+  const restore = rawRestore.slice(0, MAX_TABS);
+  if (rawRestore.length > MAX_TABS) {
+    console.warn(`[tabs] restore truncated from ${rawRestore.length} to ${MAX_TABS}`);
+  }
+  restore.forEach((url, i) => {
+    try {
+      tabs?.createTab(url, { activate: i === restore.length - 1 });
+    } catch (err) {
+      console.warn('[tabs] create during restore failed:', err);
+    }
+  });
   sendTabs();
 
   updater.start();
@@ -369,18 +397,53 @@ function registerIpc(): void {
   handleUI('arena:settings:get', () => loadSettings());
   handleUI('arena:settings:set', (_e, patch: unknown) => {
     const before = loadSettings();
-    const settings = saveSettings(editableSettingsPatch(patch));
+    const validatedPatch = editableSettingsPatch(patch);
+
+    // 先嘗試快捷鍵，避免設定檔被錯誤覆蓋後進入無快捷鍵狀態
+    let shortcutError: string | null = null;
+    const wantsShortcutChange =
+      Object.prototype.hasOwnProperty.call(validatedPatch, 'globalShortcut') ||
+      Object.prototype.hasOwnProperty.call(validatedPatch, 'globalShortcutEnabled');
+
+    if (wantsShortcutChange) {
+      const proposedShortcut =
+        (validatedPatch.globalShortcut as string | undefined) ?? before.globalShortcut;
+      const proposedEnabled =
+        (validatedPatch.globalShortcutEnabled as boolean | undefined) ??
+        before.globalShortcutEnabled;
+
+      shortcutError = setGlobalShortcut(proposedShortcut, proposedEnabled, toggleWindow);
+
+      if (shortcutError) {
+        // 註冊失敗：不保存失敗的快捷鍵，保留舊值
+        delete (validatedPatch as Record<string, unknown>).globalShortcut;
+        delete (validatedPatch as Record<string, unknown>).globalShortcutEnabled;
+      }
+    }
+
+    const settings = saveSettings(validatedPatch);
     if (before.theme !== settings.theme) {
       tabs?.updateTheme(settings.theme);
       win?.setBackgroundColor(themeBackground());
       for (const popup of popups) popup.setBackgroundColor(themeBackground());
     }
     if (before.launchAtStartup !== settings.launchAtStartup) applyLoginItem(settings);
-    const shortcutError =
-      before.globalShortcut !== settings.globalShortcut ||
-      before.globalShortcutEnabled !== settings.globalShortcutEnabled
-        ? setGlobalShortcut(settings.globalShortcut, settings.globalShortcutEnabled, toggleWindow)
-        : null;
+
+    // 如果其他設定改了但快捷鍵沒在 patch 裡，仍需處理 enable/disable 切換的情況（已在上方處理）
+    // 為了相容舊邏輯，若沒有快捷鍵變更但之前有錯誤狀態，確保重新嘗試
+    if (!wantsShortcutChange) {
+      const needsShortcutSync =
+        before.globalShortcut !== settings.globalShortcut ||
+        before.globalShortcutEnabled !== settings.globalShortcutEnabled;
+      if (needsShortcutSync) {
+        shortcutError = setGlobalShortcut(
+          settings.globalShortcut,
+          settings.globalShortcutEnabled,
+          toggleWindow,
+        );
+      }
+    }
+
     win?.webContents.send('arena:settings:changed', settings);
     return { settings, shortcutError };
   });

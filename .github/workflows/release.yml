@@ -37,7 +37,9 @@ jobs:
           if (!/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(version)) throw new Error('Invalid release version');
           if (process.env.GITHUB_REF.startsWith('refs/tags/') && process.env.GITHUB_REF !== `refs/tags/v${version}`) throw new Error('Tag/version mismatch');
           if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' && process.env.REQUESTED_VERSION !== version) throw new Error('Requested version mismatch');
-          if (!fs.existsSync(`release-notes/v${version}.md`)) throw new Error('Missing version-specific release notes');
+          if (!fs.existsSync(`release-notes/v${version}.md`)) {
+            throw new Error(`Missing version-specific release notes: release-notes/v${version}.md`);
+          }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nbeta=${version.includes('-beta.')}\n`);
           JS
 

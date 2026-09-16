@@ -1,7 +1,13 @@
 import type { UpdateStatus } from '../api';
 import type { Notice } from '../App';
 
-export default function Toasts({ update, notice }: { update: UpdateStatus; notice: Notice | null }) {
+export default function Toasts({
+  update,
+  notice,
+}: {
+  update: UpdateStatus;
+  notice: Notice | null;
+}) {
   return (
     <div className="toasts">
       {update.state === 'downloaded' && (
@@ -10,7 +16,11 @@ export default function Toasts({ update, notice }: { update: UpdateStatus; notic
       {update.state === 'error' && (
         <div className="toast err">更新檢查失敗：{update.message ?? '未知錯誤'}</div>
       )}
-      {notice && <div className="toast info" key={notice.id}>{notice.text}</div>}
+      {notice && (
+        <div className="toast info" key={notice.id}>
+          {notice.text}
+        </div>
+      )}
     </div>
   );
 }

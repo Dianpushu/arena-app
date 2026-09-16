@@ -9,6 +9,8 @@ export class SettingsStore {
   private dirty = false;
   private timer?: NodeJS.Timeout;
   private writing: Promise<void> | null = null;
+  private retryCount = 0;
+  private readonly RETRY_DELAYS = [100, 300, 700, 1500];
 
   constructor(
     private filePath: string,
@@ -28,6 +30,7 @@ export class SettingsStore {
   save(patch: unknown): AppSettings {
     this.cache = validateSettings(patch, this.cache);
     this.dirty = true;
+    this.retryCount = 0;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       void this.flush().catch((err) => console.error('[settings] save failed:', err));
@@ -46,6 +49,23 @@ export class SettingsStore {
     this.writing = this.writePending();
     try {
       await this.writing;
+      this.retryCount = 0;
+    } catch (err) {
+      this.dirty = true;
+      if (this.retryCount < this.RETRY_DELAYS.length) {
+        const delay = this.RETRY_DELAYS[this.retryCount];
+        this.retryCount++;
+        if (this.timer) clearTimeout(this.timer);
+        this.timer = setTimeout(() => {
+          void this.flush().catch((e) => console.error('[settings] retry failed:', e));
+        }, delay);
+      } else {
+        console.error(
+          `[settings] save failed after ${this.RETRY_DELAYS.length} retries, keeping dirty flag`,
+          err,
+        );
+      }
+      throw err;
     } finally {
       this.writing = null;
     }

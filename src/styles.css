@@ -22,8 +22,7 @@
   --toast-bg: #fffdf8;
   --shadow: 0 20px 60px rgba(28, 25, 23, 0.18);
   --on-accent: #ffffff;
-  --sans: 'Segoe UI', 'Microsoft JhengHei', 'Microsoft YaHei', 'PingFang TC',
-    system-ui, sans-serif;
+  --sans: 'Segoe UI', 'Microsoft JhengHei', 'Microsoft YaHei', 'PingFang TC', system-ui, sans-serif;
   --serif: Georgia, 'Times New Roman', 'Songti TC', 'PMingLiU', serif;
 }
 
