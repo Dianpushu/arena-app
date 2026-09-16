@@ -43,7 +43,15 @@ jobs:
       - run: npm run build
 
       # 打 v* tag 才發佈到 GitHub Releases；一般 push 只編譯驗證。
-      - run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $builderArgs = @('--win', '--publish', '${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}')
+          # GitHub provider 不會自動從版本號推導 beta 更新檔名，須明確指定。
+          if ($version -match '-beta\.') { $builderArgs += '-c.publish.channel=beta' }
+          npx electron-builder @builderArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed' }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
