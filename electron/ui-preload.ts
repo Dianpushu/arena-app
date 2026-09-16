@@ -1,9 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { AppSettings, ArenaAPI, TabInfo, UpdateStatus } from './shared';
+import type { AppSettings, ArenaAPI, TabInfo, UpdateStatus } from './shared';
 
-// Preload 同時掛在「UI 視窗」和「每個內容分頁」上。
-// 安全考量：只有本機 UI（file:// 或 localhost）能拿到完整 API；
-// arena.ai 等遠端頁面只拿到 reloadActive（給離線頁的重試按鈕用）。
+// 只掛載於主 UI；權限由 main 驗證 WebContents、主 frame 與精確 UI URL。
 
 function sub<T>(channel: string, cb: (data: T) => void): () => void {
   const fn = (_e: unknown, data: T) => cb(data);
@@ -54,13 +52,4 @@ const api: ArenaAPI = {
   },
 };
 
-const isLocalUI =
-  window.location.protocol === 'file:' ||
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1';
-
-const minimalApi = {
-  tabs: { reloadActive: api.tabs.reloadActive },
-};
-
-contextBridge.exposeInMainWorld('arena', (isLocalUI ? api : minimalApi) as ArenaAPI);
+if (process.isMainFrame) contextBridge.exposeInMainWorld('arena', api);

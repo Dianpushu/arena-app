@@ -1,4 +1,6 @@
-import { Menu, shell, WebContents } from 'electron';
+import { Menu, WebContents } from 'electron';
+import { openExternalHttp } from './navigation';
+import { isHttpUrl } from './url-policy';
 
 // 聊天 App 必備：輸入框右鍵（剪下/複製/貼上/全選）＋ 連結右鍵用系統瀏覽器開啟。
 // role 類選單的顯示文字會跟著系統語系自動中文化。
@@ -20,11 +22,11 @@ export function attachContextMenu(contents: WebContents): void {
       items.push({ role: 'copy' }, { type: 'separator' }, { role: 'selectAll' });
     }
 
-    if (linkURL) {
+    if (isHttpUrl(linkURL)) {
       if (items.length > 0) items.push({ type: 'separator' });
       items.push({
         label: '在瀏覽器中開啟連結',
-        click: () => void shell.openExternal(linkURL),
+        click: () => void openExternalHttp(linkURL).catch(console.error),
       });
     }
 

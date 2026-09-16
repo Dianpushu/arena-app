@@ -1,6 +1,12 @@
-import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, session, Tray } from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
 import * as path from 'node:path';
-import { loadSettings, saveSettings } from './settings';
+import { pathToFileURL } from 'node:url';
+import { assertTrustedUI } from './ipc-security';
+import { isHttpUrl, isSameDocument, isSameOrigin } from './url-policy';
+import { guardWebNavigation, openExternalHttp } from './navigation';
+import { editableSettingsPatch } from './settings-schema';
+import { flushSettings, loadSettings, saveSettings } from './settings';
 import { ARENA_PARTITION, TabManager } from './tabs';
 import { appIconPng, createTray } from './tray';
 import { clearGlobalShortcuts, setGlobalShortcut } from './shortcuts';
@@ -10,6 +16,9 @@ import { AppSettings, DEFAULT_HOMEPAGE } from './shared';
 
 const isDev = !app.isPackaged && process.env.ARENA_DEV === '1';
 const VITE_URL = process.env.ARENA_VITE_URL ?? 'http://127.0.0.1:5173';
+const UI_URL = isDev
+  ? new URL(VITE_URL).href
+  : pathToFileURL(path.join(__dirname, '..', 'dist', 'index.html')).href;
 
 app.setName('Arena');
 if (process.platform === 'win32') app.setAppUserModelId('ai.arena.desktop');
@@ -19,6 +28,13 @@ let tabs: TabManager | null = null;
 let updater: AppUpdater | null = null;
 let forceQuit = false;
 let persistTimer: NodeJS.Timeout | null = null;
+let uiTimer: NodeJS.Timeout | null = null;
+let tray: Tray | null = null;
+const popups = new Set<BrowserWindow>();
+let quitting = false;
+let quitReady = false;
+let quitPreparation: Promise<void> | null = null;
+let dataClear: Promise<void> | null = null;
 
 // ---------- 單一實例：重複開啟時聚焦舊視窗 ----------
 
@@ -32,9 +48,17 @@ if (!app.requestSingleInstanceLock()) {
     win.focus();
   });
   void app.whenReady().then(startup);
-  app.on('before-quit', () => {
-    clearGlobalShortcuts();
-    updater?.stop();
+  app.on('before-quit', (event) => {
+    forceQuit = true;
+    if (quitReady) return;
+    event.preventDefault();
+    void prepareQuit().then(() => app.quit());
+  });
+  app.on('will-quit', () => {
+    tray?.destroy();
+    tray = null;
+    for (const popup of popups) popup.destroy();
+    popups.clear();
   });
   // Windows 上關掉所有視窗就結束（除非設定了縮到系統匣，那時視窗只是隱藏）
   app.on('window-all-closed', () => {
@@ -63,12 +87,24 @@ async function startup(): Promise<void> {
     show: false,
     icon: appIconPng(),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'ui-preload.js'),
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
   win.setMenu(null);
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!isSameDocument(url, UI_URL)) event.preventDefault();
+  });
+  win.webContents.on('will-frame-navigate', (event) => {
+    if (!event.isMainFrame || !isSameDocument(event.url, UI_URL)) event.preventDefault();
+  });
+  win.webContents.on('will-redirect', (event, url) => {
+    if (!isSameDocument(url, UI_URL)) event.preventDefault();
+  });
+  win.webContents.on('will-attach-webview', (event) => event.preventDefault());
 
   // 權限：通知開關由設定控制，其餘一律拒絕
   session
@@ -79,12 +115,10 @@ async function startup(): Promise<void> {
 
   updater = new AppUpdater((s) => win?.webContents.send('arena:update:status', s));
 
-  tabs = new TabManager(win, path.join(__dirname, 'preload.js'), {
-    onChanged: () => {
-      sendTabs();
-      schedulePersistTabs();
-    },
-    onOpenPopup: (url) => openPopup(url),
+  tabs = new TabManager(win, path.join(__dirname, 'content-preload.js'), {
+    onChanged: scheduleSendTabs,
+    onPersist: schedulePersistTabs,
+    onOpenPopup: openPopup,
   });
 
   // UI 重載或崩潰後，舊的設定面板已不存在，不能讓內容永遠保持隱藏。
@@ -101,6 +135,9 @@ async function startup(): Promise<void> {
     if (!forceQuit && loadSettings().closeBehavior === 'tray') {
       e.preventDefault(); // 縮到系統匣而不是結束
       win?.hide();
+    } else if (!quitReady) {
+      e.preventDefault();
+      app.quit();
     }
   });
   win.on('closed', () => {
@@ -120,7 +157,7 @@ async function startup(): Promise<void> {
   win.on('resized', saveBounds);
   win.on('moved', saveBounds);
 
-  createTray({
+  tray = createTray({
     onToggle: toggleWindow,
     onCheckUpdate: () => void updater?.check(),
     onToggleAutostart: () => {
@@ -193,21 +230,34 @@ function applyLoginItem(s: AppSettings): void {
   }
 }
 
-function homepageOrigin(): string {
-  try {
-    return new URL(loadSettings().homepage || DEFAULT_HOMEPAGE).origin;
-  } catch {
-    return new URL(DEFAULT_HOMEPAGE).origin;
-  }
+/** 關窗、系統結束、Tray quit 與安裝更新都走同一條 flush 路徑。 */
+async function prepareQuit(): Promise<void> {
+  if (quitPreparation) return quitPreparation;
+  quitting = true;
+  clearGlobalShortcuts();
+  updater?.stop();
+  if (persistTimer) clearTimeout(persistTimer);
+  if (uiTimer) clearTimeout(uiTimer);
+  persistTimer = uiTimer = null;
+  quitPreparation = (async () => {
+    if (dataClear) await dataClear.catch(console.error);
+    saveBounds();
+    if (tabs) saveSettings({ restoreTabs: tabs.allUrls() });
+    try {
+      await flushSettings();
+    } catch (err) {
+      console.error('[quit] settings flush failed:', err);
+    }
+    quitReady = true;
+  })();
+  return quitPreparation;
 }
 
 // ---------- App 內彈窗（登入用）：跟主視窗共用同一個 session ----------
 
-function openPopup(url: string): void {
-  if (!win) {
-    void shell.openExternal(url);
-    return;
-  }
+function openPopup(url: string, sourceTabId: number): void {
+  if (!win || quitting || dataClear || !isHttpUrl(url)) return;
+  const returnOrigin = loadSettings().homepage;
   const popup = new BrowserWindow({
     width: 560,
     height: 700,
@@ -218,22 +268,26 @@ function openPopup(url: string): void {
     icon: appIconPng(),
     webPreferences: {
       partition: ARENA_PARTITION,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+  popups.add(popup);
+  popup.once('closed', () => popups.delete(popup));
   popup.setMenu(null);
+  guardWebNavigation(popup.webContents);
   attachContextMenu(popup.webContents);
   // 彈窗裡再開彈窗就丟給系統瀏覽器，避免無限疊
   popup.webContents.setWindowOpenHandler(({ url: u }) => {
-    void shell.openExternal(u);
+    if (isHttpUrl(u)) void openExternalHttp(u).catch(console.error);
     return { action: 'deny' };
   });
   // OAuth 登入完成、跳回 arena.ai 時自動關閉彈窗並重整當前分頁
   popup.webContents.on('did-navigate', (_e, navUrl) => {
-    if (navUrl.startsWith(homepageOrigin()) && !popup.isDestroyed()) {
+    if (isSameOrigin(navUrl, returnOrigin) && !popup.isDestroyed()) {
       popup.close();
-      tabs?.reloadActive();
+      tabs?.reload(sourceTabId);
     }
   });
   void popup.loadURL(url).catch((err) => console.warn('[popup] load failed:', err));
@@ -242,11 +296,20 @@ function openPopup(url: string): void {
 // ---------- IPC ----------
 
 function sendTabs(): void {
-  win?.webContents.send('arena:tabs:changed', tabs?.list() ?? []);
+  if (win && !win.isDestroyed()) win.webContents.send('arena:tabs:changed', tabs?.list() ?? []);
+}
+
+function scheduleSendTabs(): void {
+  if (quitting || uiTimer) return;
+  uiTimer = setTimeout(() => {
+    uiTimer = null;
+    sendTabs();
+  }, 32);
 }
 
 /** 分頁變動後 1.5 秒才寫檔，避免拖曳/載入時頻繁寫入。 */
 function schedulePersistTabs(): void {
+  if (quitting) return;
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = null;
@@ -254,74 +317,102 @@ function schedulePersistTabs(): void {
   }, 1500);
 }
 
+function handleUI<Args extends unknown[]>(
+  channel: string,
+  listener: (event: IpcMainInvokeEvent, ...args: Args) => unknown,
+): void {
+  ipcMain.handle(channel, (event, ...args: Args) => {
+    assertTrustedUI(event, win?.webContents, UI_URL);
+    if (quitting) throw new Error('App is quitting');
+    return listener(event, ...args);
+  });
+}
+
 function registerIpc(): void {
+  ipcMain.handle('arena:content:retry', (event) => {
+    if (quitting) throw new Error('App is quitting');
+    tabs?.retryOffline(event.sender, event.senderFrame);
+  });
   // 分頁
-  ipcMain.handle('arena:tabs:list', () => tabs?.list() ?? []);
-  ipcMain.handle('arena:tabs:create', (_e, url?: string) => tabs?.createTab(url) ?? -1);
-  ipcMain.handle('arena:tabs:close', (_e, id: number) => tabs?.closeTab(id));
-  ipcMain.handle('arena:tabs:activate', (_e, id: number) => tabs?.activateTab(id));
-  ipcMain.handle('arena:tabs:move', (_e, id: number, toIndex: number) =>
-    tabs?.moveTab(id, toIndex),
-  );
-  ipcMain.handle('arena:tabs:reload', (_e, id?: number) => tabs?.reload(id));
-  ipcMain.handle('arena:tabs:reload-active', () => tabs?.reloadActive());
-  ipcMain.handle('arena:tabs:go-back', (_e, id?: number) => tabs?.goBack(id));
-  ipcMain.handle('arena:tabs:go-forward', (_e, id?: number) => tabs?.goForward(id));
-  ipcMain.handle('arena:tabs:navigate', (_e, id: number | undefined, url: string) =>
+  handleUI('arena:tabs:list', () => tabs?.list() ?? []);
+  handleUI('arena:tabs:create', (_e, url?: string) => tabs?.createTab(url) ?? -1);
+  handleUI('arena:tabs:close', (_e, id: number) => tabs?.closeTab(id));
+  handleUI('arena:tabs:activate', (_e, id: number) => tabs?.activateTab(id));
+  handleUI('arena:tabs:move', (_e, id: number, toIndex: number) => tabs?.moveTab(id, toIndex));
+  handleUI('arena:tabs:reload', (_e, id?: number) => tabs?.reload(id));
+  handleUI('arena:tabs:reload-active', () => tabs?.reloadActive());
+  handleUI('arena:tabs:go-back', (_e, id?: number) => tabs?.goBack(id));
+  handleUI('arena:tabs:go-forward', (_e, id?: number) => tabs?.goForward(id));
+  handleUI('arena:tabs:navigate', (_e, id: number | undefined, url: string) =>
     tabs?.navigate(id, url),
   );
-  ipcMain.handle('arena:tabs:zoom-in', (_e, id?: number) => tabs?.zoomIn(id));
-  ipcMain.handle('arena:tabs:zoom-out', (_e, id?: number) => tabs?.zoomOut(id));
-  ipcMain.handle('arena:tabs:zoom-reset', (_e, id?: number) => tabs?.zoomReset(id));
+  handleUI('arena:tabs:zoom-in', (_e, id?: number) => tabs?.zoomIn(id));
+  handleUI('arena:tabs:zoom-out', (_e, id?: number) => tabs?.zoomOut(id));
+  handleUI('arena:tabs:zoom-reset', (_e, id?: number) => tabs?.zoomReset(id));
 
   // 視窗
-  ipcMain.handle('arena:window:minimize', () => win?.minimize());
-  ipcMain.handle('arena:window:toggle-maximize', () => {
+  handleUI('arena:window:minimize', () => win?.minimize());
+  handleUI('arena:window:toggle-maximize', () => {
     if (!win) return;
     if (win.isMaximized()) win.unmaximize();
     else win.maximize();
   });
-  ipcMain.handle('arena:window:close', () => win?.close());
-  ipcMain.handle('arena:window:hide', () => win?.hide());
-  ipcMain.handle('arena:window:is-maximized', () => win?.isMaximized() ?? false);
+  handleUI('arena:window:close', () => win?.close());
+  handleUI('arena:window:hide', () => win?.hide());
+  handleUI('arena:window:is-maximized', () => win?.isMaximized() ?? false);
 
   // 設定
-  ipcMain.handle('arena:settings:set-open', (event, open: unknown) => {
-    // 只接受主 UI 的主 frame，避免遠端分頁／離線頁控制整個視窗的可見性。
-    if (!win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) {
-      throw new Error('Settings visibility is only available to the main UI');
-    }
+  handleUI('arena:settings:set-open', (_event, open: unknown) => {
     if (typeof open !== 'boolean') throw new TypeError('open must be a boolean');
     tabs?.setContentObscured(open);
   });
-  ipcMain.handle('arena:settings:get', () => loadSettings());
-  ipcMain.handle('arena:settings:set', (_e, patch: Partial<AppSettings>) => {
-    const settings = saveSettings(patch);
-    applyLoginItem(settings);
-    const shortcutError = setGlobalShortcut(
-      settings.globalShortcut,
-      settings.globalShortcutEnabled,
-      toggleWindow,
-    );
+  handleUI('arena:settings:get', () => loadSettings());
+  handleUI('arena:settings:set', (_e, patch: unknown) => {
+    const before = loadSettings();
+    const settings = saveSettings(editableSettingsPatch(patch));
+    if (before.theme !== settings.theme) {
+      tabs?.updateTheme(settings.theme);
+      win?.setBackgroundColor(themeBackground());
+      for (const popup of popups) popup.setBackgroundColor(themeBackground());
+    }
+    if (before.launchAtStartup !== settings.launchAtStartup) applyLoginItem(settings);
+    const shortcutError =
+      before.globalShortcut !== settings.globalShortcut ||
+      before.globalShortcutEnabled !== settings.globalShortcutEnabled
+        ? setGlobalShortcut(settings.globalShortcut, settings.globalShortcutEnabled, toggleWindow)
+        : null;
     win?.webContents.send('arena:settings:changed', settings);
     return { settings, shortcutError };
   });
 
   // App
-  ipcMain.handle('arena:app:version', () => app.getVersion());
-  ipcMain.handle('arena:app:check-update', () => updater?.check() ?? { state: 'idle' as const });
-  ipcMain.handle('arena:app:quit-and-install', () => {
+  handleUI('arena:app:version', () => app.getVersion());
+  handleUI('arena:app:check-update', () => updater?.check() ?? { state: 'idle' as const });
+  handleUI('arena:app:quit-and-install', async () => {
+    if (updater?.status.state !== 'downloaded') return;
     forceQuit = true;
-    updater?.quitAndInstall();
+    await prepareQuit();
+    updater.quitAndInstall();
   });
-  ipcMain.handle('arena:app:open-external', (_e, url: string) => shell.openExternal(url));
-  ipcMain.handle('arena:app:clear-data', async () => {
+  handleUI('arena:app:open-external', (_e, url: unknown) => openExternalHttp(url));
+  handleUI('arena:app:clear-data', async () => {
+    if (dataClear) return dataClear;
+    for (const popup of popups) popup.destroy();
     const ses = session.fromPartition(ARENA_PARTITION);
-    await ses.clearStorageData();
-    await ses.clearCache();
-    tabs?.reloadActive();
+    dataClear =
+      tabs?.clearBrowsingData(async () => {
+        await ses.closeAllConnections();
+        await ses.clearStorageData();
+        await ses.clearCache();
+        await ses.clearAuthCache();
+      }) ?? Promise.resolve();
+    try {
+      await dataClear;
+    } finally {
+      dataClear = null;
+    }
   });
-  ipcMain.handle('arena:app:quit', () => {
+  handleUI('arena:app:quit', () => {
     forceQuit = true;
     app.quit();
   });

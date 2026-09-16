@@ -112,7 +112,7 @@
         // 離線頁跑在內容分頁裡：透過 preload 暴露的最小 API 要求主進程重載。
         // 注意：這裡不能用 location.reload()，那只會重載離線頁自己。
         if (window.arena && window.arena.tabs && window.arena.tabs.reloadActive) {
-          window.arena.tabs.reloadActive();
+          window.arena.tabs.reloadActive().catch(console.error);
         } else {
           location.reload();
         }

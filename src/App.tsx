@@ -139,11 +139,14 @@ export default function App() {
 
   const patchSettings = useCallback(
     (patch: Partial<AppSettings>) => {
-      void arena.settings.set(patch).then(({ settings: s, shortcutError: err }) => {
-        setSettings(s);
-        setShortcutError(err);
-        if (err) notify(err);
-      });
+      void arena.settings
+        .set(patch)
+        .then(({ settings: s, shortcutError: err }) => {
+          setSettings(s);
+          setShortcutError(err);
+          if (err) notify(err);
+        })
+        .catch((err) => notify(String(err)));
     },
     [notify],
   );
@@ -163,6 +166,7 @@ export default function App() {
           onCloseWindow={() => void arena.window.close()}
         />
         <ToolBar
+          onError={notify}
           tab={activeTab}
           update={update}
           urlFocusToken={urlFocusToken}
@@ -173,13 +177,15 @@ export default function App() {
             if (activeTab && settings) void arena.tabs.navigate(activeTab.id, settings.homepage);
           }}
           onNavigate={(url) => {
-            if (activeTab) void arena.tabs.navigate(activeTab.id, url);
+            if (activeTab)
+              void arena.tabs.navigate(activeTab.id, url).catch((err) => notify(String(err)));
           }}
           onZoomIn={() => void arena.tabs.zoomIn()}
           onZoomOut={() => void arena.tabs.zoomOut()}
           onZoomReset={() => void arena.tabs.zoomReset()}
           onOpenExternal={() => {
-            if (activeTab) void arena.app.openExternal(activeTab.url);
+            if (activeTab)
+              void arena.app.openExternal(activeTab.url).catch((err) => notify(String(err)));
           }}
           onCheckUpdate={() => void arena.app.checkUpdate()}
           onQuitAndInstall={() => void arena.app.quitAndInstall()}
@@ -224,7 +230,10 @@ export default function App() {
         onQuitAndInstall={() => void arena.app.quitAndInstall()}
         onClearData={() => {
           if (window.confirm('確定要清除所有瀏覽資料嗎？這會登出 arena.ai 並刪除 Cookie。')) {
-            void arena.app.clearData().then(() => notify('已清除瀏覽資料'));
+            void arena.app
+              .clearData()
+              .then(() => notify('已清除瀏覽資料'))
+              .catch((err) => notify(String(err)));
           }
         }}
       />

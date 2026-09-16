@@ -1,5 +1,5 @@
 import type { AppSettings, ArenaAPI, TabInfo, UpdateStatus } from '../electron/shared';
-import { DEFAULT_HOMEPAGE, DEFAULT_SETTINGS } from '../electron/shared';
+import { DEFAULT_SETTINGS } from '../electron/shared';
 
 export type { AppSettings, TabInfo, UpdateStatus };
 export type { ArenaAPI } from '../electron/shared';
@@ -58,7 +58,7 @@ function createMockApi(): ArenaAPI {
   const active = () => tabs.find((t) => t.active) ?? tabs[0];
 
   const sub =
-    <T,>(set: Set<Listener<T>>) =>
+    <T>(set: Set<Listener<T>>) =>
     (cb: Listener<T>) => {
       set.add(cb);
       return () => {
@@ -147,9 +147,7 @@ function createMockApi(): ArenaAPI {
         emitTabs();
         setTimeout(() => {
           tabs = tabs.map((t) =>
-            t.id === target
-              ? { ...t, loading: false, title: hostOf(t.url), canGoBack: true }
-              : t,
+            t.id === target ? { ...t, loading: false, title: hostOf(t.url), canGoBack: true } : t,
           );
           emitTabs();
         }, 900);
@@ -221,13 +219,4 @@ function createMockApi(): ArenaAPI {
 
 export const arena: ArenaAPI = window.arena ?? createMockApi();
 
-/** 網址列輸入正規化：沒打協定就補 https://；像搜尋關鍵字就丟 Google。 */
-export function normalizeUserInput(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return DEFAULT_HOMEPAGE;
-  if (/^\w+:\/\//.test(trimmed)) return trimmed;
-  if (trimmed.includes(' ') || !trimmed.includes('.')) {
-    return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
-  }
-  return `https://${trimmed}`;
-}
+export { normalizeUserInput } from '../electron/url-policy';
