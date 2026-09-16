@@ -111,6 +111,21 @@ arena-app/
      ↕ IPC（preload 白名單 API）   ↖右鍵/彈窗/托盤/快捷鍵/自動更新
 ```
 
+## 設定面板回歸測試
+
+設定是 React DOM，但網頁是原生 `WebContentsView`，CSS `z-index` 無法蓋過它。
+主 UI 透過受 sender／frame 驗證的 IPC 同步設定開關，`TabManager` 在每次 layout 時套用隱藏狀態；關閉設定後恢復目前分頁，不銷毀或重新載入網頁。
+
+在有圖形桌面的環境（Windows CI 會自動執行）：
+
+```powershell
+npm run gen:icon
+npm run build
+npm run test:electron
+```
+
+測試使用臨時使用者資料目錄與本機 HTTP 測試網頁，實際走 Renderer → preload → IPC → 原生視圖，驗證關閉方式、版面／分頁變動、頁面狀態保留、IPC 權限及 UI 重載／崩潰復原。瀏覽器預覽不包含原生視圖，不能單靠它驗證這類層級問題。
+
 ## 打包安裝包
 
 ```powershell
