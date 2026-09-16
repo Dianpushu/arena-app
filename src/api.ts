@@ -1,5 +1,5 @@
 import type { AppSettings, ArenaAPI, TabInfo, UpdateStatus } from '../electron/shared';
-import { DEFAULT_SETTINGS } from '../electron/shared';
+import { DEFAULT_SETTINGS, MAX_TABS } from '../electron/shared';
 
 export type { AppSettings, TabInfo, UpdateStatus };
 export type { ArenaAPI } from '../electron/shared';
@@ -81,6 +81,9 @@ function createMockApi(): ArenaAPI {
     tabs: {
       list: async () => [...tabs],
       create: async (url?: string) => {
+        if (tabs.length >= MAX_TABS) {
+          throw new Error(`已達到分頁上限（${MAX_TABS} 個），請先關閉部分分頁`);
+        }
         const id = seq++;
         tabs = [
           ...tabs.map((t) => ({ ...t, active: false })),

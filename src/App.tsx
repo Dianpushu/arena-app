@@ -82,8 +82,11 @@ export default function App() {
   }, [settingsVisible, notify]);
 
   const newTab = useCallback(() => {
-    void arena.tabs.create().then(() => setUrlFocusToken((n) => n + 1));
-  }, []);
+    void arena.tabs
+      .create()
+      .then(() => setUrlFocusToken((n) => n + 1))
+      .catch((err) => notify(String(err)));
+  }, [notify]);
 
   // 桌面版快捷鍵（瀏覽器預覽模式不攔截，避免關掉預覽分頁）
   useEffect(() => {

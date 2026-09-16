@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { normalizeUrl, isHttpUrl, isSameDocument } from './url-policy';
 import { guardWebNavigation } from './navigation';
 import { moveTabOrder, nextZoom } from './tab-utils';
-import { AppTheme, DEFAULT_HOMEPAGE, TabInfo, VIEW_TOP_OFFSET } from './shared';
+import { AppTheme, DEFAULT_HOMEPAGE, MAX_TABS, TabInfo, VIEW_TOP_OFFSET } from './shared';
 import { loadSettings } from './settings';
 import { attachContextMenu } from './context-menu';
 
@@ -55,6 +55,9 @@ export class TabManager {
 
   createTab(rawUrl?: string, opts: { activate?: boolean } = {}): number {
     if (this.clearing) throw new Error('正在清除瀏覽資料');
+    if (this.tabs.size >= MAX_TABS) {
+      throw new Error(`已達到分頁上限（${MAX_TABS} 個），請先關閉部分分頁`);
+    }
     const id = nextId++;
     const url = normalizeUrl(rawUrl === undefined ? loadSettings().homepage : rawUrl);
 
@@ -296,7 +299,7 @@ export class TabManager {
   async clearBrowsingData(clear: () => Promise<void>): Promise<void> {
     if (this.clearing) throw new Error('正在清除瀏覽資料');
     this.clearing = true;
-    const urls = this.allUrls();
+    const urls = this.allUrls().slice(0, MAX_TABS);
     const activeIndex = this.order.indexOf(this.activeId);
     this.destroy();
     this.hooks.onChanged();
@@ -305,7 +308,11 @@ export class TabManager {
     } finally {
       this.clearing = false;
       (urls.length ? urls : [loadSettings().homepage]).forEach((url, index) => {
-        this.createTab(url, { activate: index === Math.max(0, activeIndex) });
+        try {
+          this.createTab(url, { activate: index === Math.max(0, activeIndex) });
+        } catch (err) {
+          console.warn('[tabs] recreate after clear failed:', err);
+        }
       });
     }
   }

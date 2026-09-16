@@ -1,4 +1,4 @@
-import { AppSettings, DEFAULT_SETTINGS } from './shared';
+import { AppSettings, DEFAULT_SETTINGS, MAX_TABS } from './shared';
 import { isHttpUrl, normalizeUrl } from './url-policy';
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -36,7 +36,8 @@ export function validateSettings(
       /* 保留已驗證的值 */
     }
   }
-  if (Array.isArray(value.restoreTabs)) next.restoreTabs = value.restoreTabs.filter(isHttpUrl);
+  if (Array.isArray(value.restoreTabs))
+    next.restoreTabs = value.restoreTabs.filter(isHttpUrl).slice(0, MAX_TABS);
   if (value.windowBounds === null) next.windowBounds = null;
   else if (record(value.windowBounds)) {
     const b = value.windowBounds;
