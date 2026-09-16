@@ -1,7 +1,7 @@
 {
   "name": "arena-desktop",
   "productName": "Arena",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "description": "Arena.ai desktop app for Windows (Electron)",
   "main": "dist-electron/main.js",
   "author": "Arena Contributors",
