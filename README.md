@@ -136,7 +136,7 @@ npm run dist:win
 3. 到 GitHub Actions → **Build Windows** → **Run workflow**，選擇該分支並勾選 `publish_prerelease`。
 4. CI 驗證版本必須為 `X.Y.Z-beta.N`，檢查型別、編譯並打包成功後，建立指向該次提交的 GitHub Pre-release，附上安裝版、免安裝版、`beta.yml` 與 `.blockmap`。不標記為 Latest；同名版本已存在時會失敗，不覆蓋既有版本。
 
-發布說明維護於 `.github/prerelease-notes.md`。一般 push 與未勾選發布選項的手動執行仍只打包，不發布。
+發布說明維護於 `.github/prerelease-notes.md`。若整合權限無法手動觸發 workflow，也可在 `arena/**` 工作分支的提交訊息加入 `[publish-beta]` 後推送，執行相同的驗證與發布流程。一般 push（沒有此標記）與未勾選發布選項的手動執行仍只打包，不發布。
 
 ### 正式版
 

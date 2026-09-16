@@ -22,7 +22,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Validate prerelease version
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_prerelease
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease) ||
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/arena/') && contains(github.event.head_commit.message, '[publish-beta]'))
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -54,7 +56,9 @@ jobs:
             dist-release/*.blockmap
 
       - name: Publish GitHub prerelease
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_prerelease
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease) ||
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/arena/') && contains(github.event.head_commit.message, '[publish-beta]'))
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
