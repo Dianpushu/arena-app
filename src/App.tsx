@@ -229,7 +229,11 @@ export default function App() {
         onCheckUpdate={() => void arena.app.checkUpdate()}
         onQuitAndInstall={() => void arena.app.quitAndInstall()}
         onClearData={() => {
-          if (window.confirm('確定要清除所有瀏覽資料嗎？這會登出 arena.ai 並刪除 Cookie。')) {
+          if (
+            window.confirm(
+              '確定要清除所有瀏覽資料嗎？這會登出網站、重建所有分頁，並清除未送出的輸入。',
+            )
+          ) {
             void arena.app
               .clearData()
               .then(() => notify('已清除瀏覽資料'))

@@ -230,7 +230,7 @@ function applyLoginItem(s: AppSettings): void {
   }
 }
 
-/** 關窗、系統結束、Tray quit 與安裝更新都走同一條 flush 路徑。 */
+/** 關窗、Tray quit 與安裝更新都走同一條 flush 路徑。 */
 async function prepareQuit(): Promise<void> {
   if (quitPreparation) return quitPreparation;
   quitting = true;

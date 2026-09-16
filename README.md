@@ -54,7 +54,7 @@
 ## 系統需求
 
 - Windows 10（1809 以上）/ Windows 11，64 位元
-- [Node.js 22 LTS](https://nodejs.org/)（開發用；一般使用者裝成品 `.exe` 不需要 Node）
+- [Node.js 22.12.0 以上](https://nodejs.org/)（開發用；一般使用者裝成品 `.exe` 不需要 Node）
 - Git
 
 ## 快速開始
@@ -82,7 +82,10 @@ arena-app/
 ├── electron/            # 主進程（Node 環境）
 │   ├── main.ts          # 進入點：視窗、IPC、彈窗、權限
 │   ├── tabs.ts          # 分頁管理（WebContentsView 多開、縮放、離線頁）
-│   ├── preload.ts       # 安全橋樑：只暴露白名單 API 給前端
+│   ├── ui-preload.ts    # 主 UI 的完整 API（main 再驗證 sender/frame/URL）
+│   ├── content-preload.ts # 內容分頁僅提供受限制的離線重試
+│   ├── url-policy.ts    # HTTP(S) 與精確 origin / document 驗證
+│   ├── settings-store.ts # debounce / async / atomic 設定儲存
 │   ├── tray.ts          # 系統匣圖示與選單
 │   ├── shortcuts.ts     # 全域快捷鍵
 │   ├── updater.ts       # 自動更新（electron-updater）
@@ -111,7 +114,7 @@ arena-app/
      ↕ IPC（preload 白名單 API）   ↖右鍵/彈窗/托盤/快捷鍵/自動更新
 ```
 
-## 設定面板回歸測試
+## 測試與程式碼檢查
 
 設定是 React DOM，但網頁是原生 `WebContentsView`，CSS `z-index` 無法蓋過它。
 主 UI 透過受 sender／frame 驗證的 IPC 同步設定開關，`TabManager` 在每次 layout 時套用隱藏狀態；關閉設定後恢復目前分頁，不銷毀或重新載入網頁。
@@ -119,12 +122,17 @@ arena-app/
 在有圖形桌面的環境（Windows CI 會自動執行）：
 
 ```powershell
+npm run lint
+npm run typecheck
+npm test
 npm run gen:icon
 npm run build
 npm run test:electron
 ```
 
-測試使用臨時使用者資料目錄與本機 HTTP 測試網頁，實際走 Renderer → preload → IPC → 原生視圖，驗證關閉方式、版面／分頁變動、頁面狀態保留、IPC 權限及 UI 重載／崩潰復原。瀏覽器預覽不包含原生視圖，不能單靠它驗證這類層級問題。
+測試使用臨時使用者資料目錄與本機 HTTP 測試網頁，實際走 Renderer → preload → IPC → 原生視圖，驗證設定開關、版面／分頁變動、IPC / preload 隔離、OAuth 來源分頁、清除資料重建、離線重試及退出前儲存。瀏覽器預覽不包含原生視圖，不能單靠它驗證這類層級問題。
+
+純函式與儲存測試使用 Node test runner，無需 Electron 圖形桌面。Lint 使用支援 TypeScript 7 的 Oxlint；格式化使用 `npm run format`（Prettier）。
 
 ## 打包安裝包
 
@@ -144,31 +152,28 @@ npm run dist:win
 
 ## 發佈新版本與自動更新
 
-### 發布 Beta 測試版
+### CI 與 Release 分離
 
-1. 使用 `npm version 0.1.0-beta.1 --no-git-tag-version` 同步更新版本與 lockfile（後續測試版遞增尾碼）。
-2. 提交並推送目前的工作分支。
-3. 到 GitHub Actions → **Build Windows** → **Run workflow**，選擇該分支並勾選 `publish_prerelease`。
-4. CI 驗證版本必須為 `X.Y.Z-beta.N`，檢查型別、編譯並打包成功後，建立指向該次提交的 GitHub Pre-release，附上安裝版、免安裝版、`beta.yml` 與 `.blockmap`。不標記為 Latest；同名版本已存在時會失敗，不覆蓋既有版本。
+- **CI**（`.github/workflows/ci.yml`）：一般 push / PR 只執行 lint、typecheck、單元測試、build 與 Windows Electron 整合測試。不產生安裝包、不發布；權限為 `contents: read`。
+- **Release Windows**（`.github/workflows/release.yml`）：僅 `v*` tag 或手動執行才驗證、打包、發布。只有最後的 `publish` job 擁有 `contents: write`；編譯與測試 job 不持有寫入權限。
+- 舊的 `[publish-beta]` commit 標記不再觸發發布。
 
-發布說明維護於 `.github/prerelease-notes.md`。若整合權限無法手動觸發 workflow，也可在 `arena/**` 工作分支的提交訊息加入 `[publish-beta]` 後推送，執行相同的驗證與發布流程。一般 push（沒有此標記）與未勾選發布選項的手動執行仍只打包，不發布。
+### 發布步驟
 
-### 正式版
+1. 使用 `npm version <版本號> --no-git-tag-version` 同步版本與 lockfile。Beta 使用 `X.Y.Z-beta.N`；正式版使用 `X.Y.Z`。
+2. 建立對應的 `release-notes/v<版本號>.md`，再提交並推送工作分支。流程會拒絕缺少該版本說明、tag/version 不符或重複版本。
+3. 新 workflow 合併至預設分支後，到 Actions → **Release Windows** → **Run workflow** 選定來源分支，輸入相同版本號，即可在檢查成功後發布並建立指向該次提交的 tag。也可以由維護者建立對應的 `v<版本號>` tag 觸發。
+4. Beta 自動標記為 GitHub Pre-release、不標記 Latest，附上 `beta.yml`；正式版發布為正式 Release，附上 `latest.yml`。兩者都提供 NSIS、portable 與 `.blockmap`。
 
-自動更新的來源是 **GitHub Releases**，流程已經全自動：
+請不要直接覆寫已發布版本的資產；修正應使用新版本號。Release 流程會再次執行 CI；只有全部通過才打包與發布。
 
-```powershell
-# 1. 改 package.json 的 version，例如 0.1.0 → 0.2.0
-# 2. 提交並打 tag
-git add -A
-git commit -m "chore: release v0.2.0"
-git tag v0.2.0
-git push origin arena/01a0a816-arena-app --tags
-```
+本機需要發布時，`npm run release:win` 會先產生 icon，依版本號選擇 beta/latest channel。它需要已設定的 GitHub 發布權限；正式版先建立 draft 供維護者確認，Beta 標記為 prerelease。建議優先使用上面的 Release workflow。
 
-CI 會在 Windows 上打包並把 `.exe`＋`latest.yml` 上傳到該 tag 的 Release。
-使用者那邊的 App 會在啟動 10 秒後（之後每 6 小時）自動檢查、下載，
-下載完成後在工具列和設定裡出現「重新啟動並更新」。
+### 自動更新分流
+
+`electron-updater` 依目前執行版本的 prerelease component 決定 `allowPrerelease`：正式版不接受 Beta；Beta 可接收更新的 Beta 或正式版。版本升為正式版後，後續啟動自然回到正式版更新規則。不允許自動降版。
+
+安裝版在啟動 10 秒後、之後每 6 小時自動檢查更新；退出時會取消初始 timeout 與 interval。
 
 ⚠️ **如果你 fork 或改名了這個 repo**，記得同步改 `electron-builder.yml` 的 `publish.owner/repo`，
 否則自動更新會去錯誤的地方找新版本。
@@ -191,7 +196,12 @@ CI 會在 Windows 上打包並把 `.exe`＋`latest.yml` 上傳到該 tag 的 Rel
 | 登入 Cookie / 快取 / 分頁還原 | `%APPDATA%\Arena\`（Partition `persist:arena`） |
 
 解除安裝 NSIS 版時**不會**刪除這些資料（`deleteAppDataOnUninstall: false`），
-要登出直接在 App 設定裡按「清除瀏覽資料」即可。
+要登出直接在 App 設定裡按「清除瀏覽資料」即可。清除時會關閉登入 popup、銷毀所有內容分頁，清除 Cookies／網站儲存／快取與 HTTP 認證，再重建分頁；未送出的頁面輸入會消失。
+
+Portable 也使用上述使用者資料夾，不是將 Cookies 存在 EXE 旁邊。
+設定含 `settingsVersion: 1`；舊檔案逐欄驗證並補預設值。修改會即時更新記憶體，350ms 合併後非同步寫入 `settings.json.tmp`、fsync，再 rename；正常退出會等待最新分頁與設定寫完。強制終止、斷電或磁碟故障仍可能遺失尚未完成的變更。
+
+安全策略、驗證範圍與尚未採用的效能策略見 [Electron 強化紀錄](docs/electron-hardening.md)。
 
 ## 常見問題
 

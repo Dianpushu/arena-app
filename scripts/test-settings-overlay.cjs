@@ -226,6 +226,7 @@ async function run() {
   // 清除時重建所有分頁，包括背景 document；設定仍然在最上方。
   await ui('window.arena.tabs.create()');
   const previousViews = views();
+  const previousContents = previousViews.map((view) => view.webContents);
   for (const view of previousViews) {
     await waitFor(() => !view.webContents.isLoading(), 'clear-data page loaded');
     await view.webContents.executeJavaScript(
@@ -240,7 +241,7 @@ async function run() {
   await open();
   await ui('window.arena.app.clearData()');
   assert.equal(views().length, previousViews.length);
-  assert.ok(previousViews.every((v) => v.webContents.isDestroyed()));
+  assert.ok(previousContents.every((contents) => contents.isDestroyed()));
   assert.equal(visible().length, 0);
   for (const view of views()) {
     await waitFor(() => !view.webContents.isLoading(), 'rebuilt page loaded');
