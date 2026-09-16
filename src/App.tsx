@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { VIEW_TOP_OFFSET } from '../electron/shared';
 import { arena, isDesktop } from './api';
 import type { AppSettings, TabInfo, UpdateStatus } from './api';
+import ArenaMark from './components/ArenaMark';
 import TitleBar from './components/TitleBar';
 import ToolBar from './components/ToolBar';
 import SettingsPanel from './components/SettingsPanel';
@@ -40,6 +41,11 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.setProperty('--chrome-h', `${VIEW_TOP_OFFSET}px`);
   }, []);
+
+  // 外觀主題（index.html 的內嵌腳本已先套用初始值避免閃爍，這裡跟設定同步）
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings?.theme ?? 'arena';
+  }, [settings?.theme]);
 
   // 初始資料 + 訂閱主進程推送
   useEffect(() => {
@@ -168,7 +174,10 @@ export default function App() {
         {!isDesktop && (
           <div className="preview-placeholder">
             <div className="preview-card">
-              <h2>🖥️ 網頁內容區（僅桌面版顯示）</h2>
+              <div className="preview-mark">
+                <ArenaMark />
+              </div>
+              <h2>網頁內容區（僅桌面版顯示）</h2>
               <p>
                 你現在看到的是瀏覽器預覽模式：上面的分頁列、工具列、設定都是真的 UI；
                 這塊深色區域在真正的桌面 App 裡會顯示 arena.ai 的網頁內容。

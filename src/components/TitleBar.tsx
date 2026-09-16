@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { TabInfo } from '../api';
+import ArenaMark from './ArenaMark';
 
 interface Props {
   tabs: TabInfo[];
@@ -35,7 +36,10 @@ export default function TitleBar(props: Props) {
   return (
     <div className="titlebar" onDoubleClick={props.onToggleMaximize}>
       <div className="brand" title="Arena Desktop">
-        <span className="brand-mark">A</span>
+        <span className="brand-mark">
+          <ArenaMark />
+        </span>
+        <span className="brand-name">Arena</span>
       </div>
 
       <div className="tabs">

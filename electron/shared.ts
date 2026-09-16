@@ -22,7 +22,11 @@ export interface TabInfo {
 
 export type CloseBehavior = 'tray' | 'quit';
 
+/** 外觀主題：arena = 跟官網一樣的暖米色，dark = 暖深色 */
+export type AppTheme = 'arena' | 'dark';
+
 export interface AppSettings {
+  theme: AppTheme;
   /** 按下視窗關閉鈕的行為：tray = 縮到系統匣，quit = 直接結束 */
   closeBehavior: CloseBehavior;
   launchAtStartup: boolean;
@@ -39,6 +43,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'arena',
   closeBehavior: 'tray',
   launchAtStartup: false,
   globalShortcutEnabled: true,

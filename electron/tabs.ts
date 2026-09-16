@@ -62,7 +62,7 @@ export class TabManager {
         spellcheck: true,
       },
     });
-    view.setBackgroundColor('#0b0b0e');
+    view.setBackgroundColor(loadSettings().theme === 'dark' ? '#1c1917' : '#f5f0e8');
 
     const tab: Tab = { id, view, url, favicon: '' };
     this.tabs.set(id, tab);
@@ -255,7 +255,9 @@ export class TabManager {
     wc.on('did-fail-load', (_e, code, _desc, validatedURL, isMainFrame) => {
       if (!isMainFrame || code === ERR_ABORTED) return;
       if (validatedURL.startsWith('file:')) return; // 離線頁自己掛了就別再跳轉，避免無限迴圈
-      void wc.loadFile(offlinePagePath()).catch(() => {});
+      void wc
+        .loadFile(offlinePagePath(), { query: { theme: loadSettings().theme } })
+        .catch(() => {});
       emit();
     });
 

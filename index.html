@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="zh-Hant" data-theme="arena">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,10 +7,27 @@
     <style>
       html,
       body {
-        background: #141419;
+        background: #f5f0e8;
         margin: 0;
       }
+      html[data-theme='dark'],
+      html[data-theme='dark'] body {
+        background: #1c1917;
+      }
     </style>
+    <script>
+      // 在 React 載入前就先套用主題，避免開窗瞬間閃一下錯誤的底色。
+      // 主進程會透過 ?theme=（正式版）或 #theme=（開發模式）傳入。
+      (function () {
+        try {
+          var q = new URLSearchParams(location.search);
+          var h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+          var t = q.get('theme') || h.get('theme') || 'arena';
+          if (t !== 'dark') t = 'arena';
+          document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

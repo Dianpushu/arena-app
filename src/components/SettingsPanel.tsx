@@ -116,6 +116,26 @@ export default function SettingsPanel(props: Props) {
           <h3>一般</h3>
           <div className="row">
             <span className="row-text">
+              <span className="row-label">外觀主題</span>
+              <span className="row-desc">米白跟官網同款配色，深色適合晚上用</span>
+            </span>
+            <div className="segment">
+              <button
+                className={settings.theme === 'arena' ? 'on' : ''}
+                onClick={() => props.onChange({ theme: 'arena' })}
+              >
+                ☀️ 米白
+              </button>
+              <button
+                className={settings.theme === 'dark' ? 'on' : ''}
+                onClick={() => props.onChange({ theme: 'dark' })}
+              >
+                🌙 深色
+              </button>
+            </div>
+          </div>
+          <div className="row">
+            <span className="row-text">
               <span className="row-label">關閉按鈕的行為</span>
               <span className="row-desc">縮到系統匣可在背景常駐，用快捷鍵隨時叫回</span>
             </span>

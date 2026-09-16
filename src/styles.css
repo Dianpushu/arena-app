@@ -1,16 +1,52 @@
-:root {
+/* ---------- 主題變數 ---------- */
+
+:root,
+:root[data-theme='arena'] {
+  color-scheme: light;
   --chrome-h: 88px; /* 由 App.tsx 依 VIEW_TOP_OFFSET 寫入，請勿手改 */
-  --bg: #141419;
-  --chrome: #1b1b22;
-  --chrome-2: #22222c;
-  --border: #2b2b36;
-  --text: #e8e8ee;
-  --muted: #9a9aa8;
-  --accent: #38bdf8;
-  --accent-dim: rgba(56, 189, 248, 0.15);
+  --bg: #f3eee5;
+  --chrome: #faf7f0;
+  --chrome-2: #ffffff;
+  --border: #e2d8c3;
+  --text: #1c1917;
+  --muted: #78716c;
+  --accent: #15803d;
+  --accent-dim: rgba(21, 128, 61, 0.12);
+  --danger: #dc2626;
+  --danger-dim: rgba(220, 38, 38, 0.08);
+  --ok: #16a34a;
+  --hover: rgba(28, 25, 23, 0.06);
+  --input-bg: #ffffff;
+  --switch-off: #d6cfbf;
+  --code-bg: rgba(28, 25, 23, 0.07);
+  --toast-bg: #fffdf8;
+  --shadow: 0 20px 60px rgba(28, 25, 23, 0.18);
+  --on-accent: #ffffff;
+  --sans: 'Segoe UI', 'Microsoft JhengHei', 'Microsoft YaHei', 'PingFang TC',
+    system-ui, sans-serif;
+  --serif: Georgia, 'Times New Roman', 'Songti TC', 'PMingLiU', serif;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #1c1917;
+  --chrome: #292524;
+  --chrome-2: #35302a;
+  --border: #44403c;
+  --text: #f5f5f4;
+  --muted: #a8a29e;
+  --accent: #4ade80;
+  --accent-dim: rgba(74, 222, 128, 0.14);
   --danger: #f87171;
+  --danger-dim: rgba(248, 113, 113, 0.12);
   --ok: #4ade80;
-  --radius: 8px;
+  --hover: rgba(255, 255, 255, 0.07);
+  --input-bg: #1c1917;
+  --switch-off: #57534e;
+  --code-bg: rgba(255, 255, 255, 0.1);
+  --toast-bg: #35302a;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --on-accent: #052e16;
 }
 
 * {
@@ -27,8 +63,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: 'Segoe UI', 'Microsoft JhengHei', 'Microsoft YaHei', 'PingFang TC',
-    system-ui, sans-serif;
+  font-family: var(--sans);
   font-size: 14px;
   overflow: hidden;
   user-select: none;
@@ -46,7 +81,7 @@ button {
 }
 
 button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover);
 }
 
 button:disabled {
@@ -55,10 +90,26 @@ button:disabled {
 }
 
 code {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--code-bg);
   border-radius: 4px;
   padding: 1px 6px;
   font-family: Consolas, monospace;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* ---------- 整體佈局 ---------- */
@@ -82,7 +133,7 @@ code {
 .content {
   flex: 1;
   position: relative;
-  background: #0b0b0e;
+  background: var(--bg);
 }
 
 /* ---------- 自繪標題列（可拖曳移動視窗） ---------- */
@@ -103,20 +154,34 @@ code {
 .brand {
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 0 4px 0 12px;
+  flex: none;
 }
 
 .brand-mark {
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  color: var(--text);
+}
+
+.arena-mark {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 13px;
-  color: #0b0b0e;
-  background: linear-gradient(135deg, #7dd3fc, var(--accent) 60%, #0ea5e9);
+  width: 100%;
+  height: 100%;
+}
+
+.arena-mark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.brand-name {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .tabs {
@@ -148,7 +213,7 @@ code {
 }
 
 .tab:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover);
 }
 
 .tab.active {
@@ -191,7 +256,7 @@ code {
   height: 13px;
   flex: none;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid var(--border);
   border-top-color: var(--accent);
   animation: spin 0.7s linear infinite;
 }
@@ -282,7 +347,7 @@ code {
   gap: 8px;
   height: 34px;
   padding: 0 12px;
-  background: #101014;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 17px;
 }
@@ -306,6 +371,10 @@ code {
   font-size: 13px;
   font-family: inherit;
   user-select: text;
+}
+
+.urlbar input::placeholder {
+  color: var(--muted);
 }
 
 .zoom-pill {
@@ -348,7 +417,7 @@ code {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(28, 25, 23, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -361,10 +430,10 @@ code {
   max-height: calc(100vh - 60px);
   display: flex;
   flex-direction: column;
-  background: var(--chrome);
+  background: var(--chrome-2);
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
 }
 
 .modal-head {
@@ -377,7 +446,8 @@ code {
 
 .modal-head h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
+  font-family: var(--serif);
 }
 
 .modal-x {
@@ -426,7 +496,7 @@ code {
   height: 23px;
   flex: none;
   border-radius: 12px;
-  background: #3a3a46;
+  background: var(--switch-off);
   border: none;
   padding: 0;
   position: relative;
@@ -454,7 +524,7 @@ code {
 
 .segment {
   display: flex;
-  background: #101014;
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 2px;
@@ -469,14 +539,16 @@ code {
 }
 
 .segment button.on {
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: var(--chrome-2);
+  border: 1px solid var(--border);
+  padding: 4px 11px;
+  font-weight: 600;
 }
 
 .shortcut-input,
 .text-input {
   width: 250px;
-  background: #101014;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 7px;
   color: var(--text);
@@ -503,13 +575,9 @@ input[type='range'] {
 
 button.primary {
   background: var(--accent);
-  color: #06222f;
+  color: var(--on-accent);
   font-weight: 600;
   border: none;
-}
-
-button.primary:hover {
-  background: #7dd3fc;
 }
 
 button.danger {
@@ -517,17 +585,14 @@ button.danger {
   color: var(--danger);
 }
 
-button.danger:hover {
-  background: rgba(248, 113, 113, 0.12);
-}
-
 .error {
   margin: 4px 0;
   padding: 8px 12px;
   border-radius: 7px;
   font-size: 12.5px;
-  background: rgba(248, 113, 113, 0.12);
+  background: var(--danger-dim);
   color: var(--danger);
+  border: 1px solid var(--danger);
 }
 
 .muted {
@@ -557,9 +622,9 @@ button.danger:hover {
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 13px;
-  background: var(--chrome-2);
+  background: var(--toast-bg);
   border: 1px solid var(--border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow);
 }
 
 .toast.ok {
@@ -583,15 +648,23 @@ button.danger:hover {
 .preview-card {
   max-width: 560px;
   text-align: center;
-  background: var(--chrome);
+  background: var(--chrome-2);
   border: 1px dashed var(--border);
   border-radius: 12px;
   padding: 32px;
 }
 
+.preview-card .preview-mark {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 8px;
+  color: var(--text);
+}
+
 .preview-card h2 {
   margin: 0 0 12px;
-  font-size: 17px;
+  font-size: 20px;
+  font-family: var(--serif);
 }
 
 .preview-card p {
@@ -602,7 +675,7 @@ button.danger:hover {
 .preview-card button {
   margin-top: 8px;
   background: var(--accent);
-  color: #06222f;
+  color: var(--on-accent);
   font-weight: 600;
   border: none;
   padding: 9px 20px;

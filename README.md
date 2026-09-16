@@ -92,7 +92,7 @@ arena-app/
 │   ├── api.ts           # window.arena 呼叫封裝＋瀏覽器預覽用 mock
 │   └── components/      # TitleBar / ToolBar / SettingsPanel / Toasts
 ├── public/offline.html  # 斷線時顯示的頁面
-├── assets/icon.png      # 圖示來源（換圖示只換這張）
+├── assets/icon.svg      # 圖示來源（競技場標誌，換圖示只換這張）
 ├── scripts/gen-icon.mjs # 從 PNG 產生 Windows .ico
 ├── electron-builder.yml # 打包設定（NSIS＋portable＋自動更新來源）
 └── .github/workflows/   # Windows 自動打包 CI

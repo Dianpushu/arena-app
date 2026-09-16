@@ -42,6 +42,11 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
+/** 依主題回傳視窗/內容區還沒載入好之前顯示的底色。 */
+function themeBackground(): string {
+  return loadSettings().theme === 'dark' ? '#1c1917' : '#f5f0e8';
+}
+
 async function startup(): Promise<void> {
   const settings = loadSettings();
   applyLoginItem(settings);
@@ -54,7 +59,7 @@ async function startup(): Promise<void> {
     minWidth: 960,
     minHeight: 640,
     frame: false, // 自繪標題列 + 分頁列
-    backgroundColor: '#141419',
+    backgroundColor: themeBackground(),
     show: false,
     icon: appIconPng(),
     webPreferences: {
@@ -132,10 +137,12 @@ async function startup(): Promise<void> {
   if (shortcutError) console.warn('[shortcut]', shortcutError);
 
   if (isDev) {
-    await win.loadURL(VITE_URL);
+    await win.loadURL(`${VITE_URL}#theme=${settings.theme}`);
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    await win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    await win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
+      query: { theme: settings.theme },
+    });
   }
 
   // 還原上次的分頁；沒有紀錄就開首頁
@@ -201,7 +208,7 @@ function openPopup(url: string): void {
     parent: win,
     modal: false,
     autoHideMenuBar: true,
-    backgroundColor: '#141419',
+    backgroundColor: themeBackground(),
     icon: appIconPng(),
     webPreferences: {
       partition: ARENA_PARTITION,
