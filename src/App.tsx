@@ -27,6 +27,7 @@ export default function App() {
   const [urlFocusToken, setUrlFocusToken] = useState(0);
 
   const activeTab = tabs.find((t) => t.active);
+  const settingsVisible = settingsOpen && settings !== null;
 
   const notify = useCallback((text: string) => {
     setNotice({ id: noticeSeq++, text });
@@ -66,6 +67,20 @@ export default function App() {
     };
   }, []);
 
+  // WebContentsView 不受 CSS z-index 控制；讓主進程同步原生視圖可見性。
+  useEffect(() => {
+    void arena.settings.setOpen(settingsVisible).catch((err) => {
+      console.error('[settings] could not update native view visibility:', err);
+      if (settingsVisible) {
+        setSettingsOpen(false);
+        notify('無法開啟設定，請重試');
+      }
+    });
+    return () => {
+      void arena.settings.setOpen(false).catch(console.error);
+    };
+  }, [settingsVisible, notify]);
+
   const newTab = useCallback(() => {
     void arena.tabs.create().then(() => setUrlFocusToken((n) => n + 1));
   }, []);
@@ -75,9 +90,12 @@ export default function App() {
     if (!isDesktop) return;
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
-      if (e.key === 'Escape' && settingsOpen) {
-        setSettingsOpen(false);
-        return;
+      if (settingsOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setSettingsOpen(false);
+        }
+        return; // 設定輸入時不要觸發分頁／縮放快捷鍵
       }
       if (!mod && !e.altKey) {
         if (e.key === 'F5') {

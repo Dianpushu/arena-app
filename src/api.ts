@@ -171,6 +171,7 @@ function createMockApi(): ArenaAPI {
       onMaximized: sub(maxListeners),
     },
     settings: {
+      setOpen: async () => {},
       get: async () => ({ ...settings }),
       set: async (patch: Partial<AppSettings>) => {
         settings = { ...settings, ...patch };

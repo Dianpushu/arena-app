@@ -87,6 +87,12 @@ async function startup(): Promise<void> {
     onOpenPopup: (url) => openPopup(url),
   });
 
+  // UI 重載或崩潰後，舊的設定面板已不存在，不能讓內容永遠保持隱藏。
+  win.webContents.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) tabs?.setContentObscured(false);
+  });
+  win.webContents.on('render-process-gone', () => tabs?.setContentObscured(false));
+
   registerIpc();
   attachContextMenu(win.webContents);
 
@@ -280,6 +286,14 @@ function registerIpc(): void {
   ipcMain.handle('arena:window:is-maximized', () => win?.isMaximized() ?? false);
 
   // 設定
+  ipcMain.handle('arena:settings:set-open', (event, open: unknown) => {
+    // 只接受主 UI 的主 frame，避免遠端分頁／離線頁控制整個視窗的可見性。
+    if (!win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) {
+      throw new Error('Settings visibility is only available to the main UI');
+    }
+    if (typeof open !== 'boolean') throw new TypeError('open must be a boolean');
+    tabs?.setContentObscured(open);
+  });
   ipcMain.handle('arena:settings:get', () => loadSettings());
   ipcMain.handle('arena:settings:set', (_e, patch: Partial<AppSettings>) => {
     const settings = saveSettings(patch);

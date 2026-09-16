@@ -41,6 +41,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run gen:icon
       - run: npm run build
+      - name: Test settings overlay in Electron
+        run: npm run test:electron
+        timeout-minutes: 3
 
       # 打 v* tag 才發佈到 GitHub Releases；一般 push 只編譯驗證。
       - name: Package Windows

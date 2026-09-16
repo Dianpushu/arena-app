@@ -38,6 +38,7 @@ const api: ArenaAPI = {
     onMaximized: (cb: (max: boolean) => void) => sub('arena:window:maximized', cb),
   },
   settings: {
+    setOpen: (open: boolean) => ipcRenderer.invoke('arena:settings:set-open', open),
     get: () => ipcRenderer.invoke('arena:settings:get'),
     set: (patch: Partial<AppSettings>) => ipcRenderer.invoke('arena:settings:set', patch),
     onChanged: (cb: (s: AppSettings) => void) => sub('arena:settings:changed', cb),

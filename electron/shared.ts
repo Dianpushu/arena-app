@@ -98,6 +98,8 @@ export interface ArenaAPI {
     onMaximized: (cb: (max: boolean) => void) => () => void;
   };
   settings: {
+    /** 暫時隱藏原生網頁內容，讓本機設定面板可見；不寫入使用者設定。 */
+    setOpen: (open: boolean) => Promise<void>;
     get: () => Promise<AppSettings>;
     set: (patch: Partial<AppSettings>) => Promise<{ settings: AppSettings; shortcutError: string | null }>;
     onChanged: (cb: (s: AppSettings) => void) => () => void;

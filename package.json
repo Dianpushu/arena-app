@@ -1,7 +1,7 @@
 {
   "name": "arena-desktop",
   "productName": "Arena",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "Arena.ai desktop app for Windows (Electron)",
   "main": "dist-electron/main.js",
   "author": "Arena Contributors",
@@ -17,7 +17,8 @@
     "gen:icon": "node scripts/gen-icon.mjs",
     "predist:win": "npm run gen:icon",
     "dist:win": "npm run build && electron-builder --win --publish never",
-    "release:win": "npm run build && electron-builder --win --publish always"
+    "release:win": "npm run build && electron-builder --win --publish always",
+    "test:electron": "electron scripts/test-settings-overlay.cjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"

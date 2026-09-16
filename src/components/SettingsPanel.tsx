@@ -102,12 +102,40 @@ export default function SettingsPanel(props: Props) {
     }
   })();
 
+  const onDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      props.onClose();
+    } else if (e.key === 'Tab') {
+      const controls = Array.from(e.currentTarget.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]',
+      )).filter((el) => el.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
+      }
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        onKeyDown={onDialogKeyDown}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-head">
-          <h2>設定</h2>
-          <button className="modal-x" onClick={props.onClose}>
+          <h2 id="settings-title">設定</h2>
+          <button className="modal-x" autoFocus aria-label="關閉設定" onClick={props.onClose}>
             ✕
           </button>
         </div>
@@ -185,6 +213,7 @@ export default function SettingsPanel(props: Props) {
               readOnly
               spellCheck={false}
               onKeyDown={(e) => {
+                if (e.key === 'Tab' || e.key === 'Escape') return;
                 e.preventDefault();
                 const acc = eventToAccelerator(e);
                 if (acc) props.onChange({ globalShortcut: acc });

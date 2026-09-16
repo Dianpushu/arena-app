@@ -39,6 +39,7 @@ export class TabManager {
   private tabs = new Map<number, Tab>();
   private order: number[] = [];
   private activeId = -1;
+  private contentObscured = false;
 
   constructor(
     private win: BrowserWindow,
@@ -189,12 +190,22 @@ export class TabManager {
 
   // ---------- 版面：只有當前分頁可見，佔滿工具列下方的區域 ----------
 
+  /** 原生子視圖永遠在 Renderer DOM 上方；顯示設定時必須隱藏，而非調整 CSS z-index。
+   * 保留 WebContents / session，關閉設定後恢復目前分頁，不重新載入網頁。 */
+  setContentObscured(obscured: boolean): void {
+    if (this.win.isDestroyed() || this.contentObscured === obscured) return;
+    this.contentObscured = obscured;
+    this.layout();
+    const target = obscured ? this.win.webContents : this.target()?.view.webContents;
+    if (target && !target.isDestroyed()) target.focus();
+  }
+
   layout(): void {
     if (this.win.isDestroyed()) return;
     const [w, h] = this.win.getContentSize();
     for (const [id, tab] of this.tabs) {
       const active = id === this.activeId;
-      tab.view.setVisible(active);
+      tab.view.setVisible(active && !this.contentObscured);
       if (active) {
         tab.view.setBounds({
           x: 0,
