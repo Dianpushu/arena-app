@@ -1,0 +1,45 @@
+# electron-builder 設定：產出 Windows NSIS 安裝版 + 免安裝攜帶版
+appId: ai.arena.desktop
+productName: Arena
+copyright: Copyright © 2026 Arena Contributors
+
+directories:
+  output: dist-release
+
+files:
+  - dist/**
+  - dist-electron/**
+  - package.json
+
+# 讓正式版也能讀到托盤圖示（tray icon）
+extraResources:
+  - from: assets/icon.png
+    to: assets/icon.png
+
+win:
+  target:
+    - nsis
+    - portable
+  icon: assets/icon.ico
+  # 注意：assets/icon.ico 由 `npm run gen:icon` 從 assets/icon.png 自動產生，
+  # `npm run dist:win` / CI 都會先執行它，不用手動維護 .ico 檔。
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Arena
+  deleteAppDataOnUninstall: false
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+
+# 自動更新來源：GitHub Releases（打 v* tag 後由 CI 自動發佈，見 .github/workflows）。
+# 如果你 fork / 改名了這個 repo，記得同步修改 owner / repo。
+publish:
+  provider: github
+  owner: Dianpushu
+  repo: arena-app

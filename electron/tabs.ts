@@ -1,0 +1,282 @@
+import { app, BrowserWindow, WebContentsView } from 'electron';
+import * as path from 'node:path';
+import { DEFAULT_HOMEPAGE, TabInfo, VIEW_TOP_OFFSET } from './shared';
+import { loadSettings } from './settings';
+import { attachContextMenu } from './context-menu';
+
+/** 所有分頁共用的持久化 session：登入狀態、Cookie 都存在這裡，App 重開不會掉登入。 */
+export const ARENA_PARTITION = 'persist:arena';
+
+/** 離線時顯示的本機頁面（開發模式讀 public/，正式版讀打包後的 dist/）。 */
+function offlinePagePath(): string {
+  const root = path.join(__dirname, '..');
+  return app.isPackaged
+    ? path.join(root, 'dist', 'offline.html')
+    : path.join(root, 'public', 'offline.html');
+}
+
+/** 斷線以外的載入失敗都導向離線頁；-3（ERR_ABORTED）通常是 SPA 內部跳轉，直接忽略。 */
+const ERR_ABORTED = -3;
+
+const ZOOM_STEPS = [25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500];
+
+interface Tab {
+  id: number;
+  view: WebContentsView;
+  /** 最後一次成功載入的 http(s) 網址（顯示在網址列；離線頁是 file:// 不覆蓋它）。 */
+  url: string;
+  favicon: string;
+}
+
+let nextId = 1;
+
+export interface TabHooks {
+  onChanged: () => void;
+  onOpenPopup: (url: string) => void;
+}
+
+export class TabManager {
+  private tabs = new Map<number, Tab>();
+  private order: number[] = [];
+  private activeId = -1;
+
+  constructor(
+    private win: BrowserWindow,
+    private preloadPath: string,
+    private hooks: TabHooks,
+  ) {}
+
+  // ---------- 建立 / 關閉 / 切換 ----------
+
+  createTab(rawUrl?: string, opts: { activate?: boolean } = {}): number {
+    const id = nextId++;
+    const url = normalizeUrl(rawUrl?.trim() ? rawUrl : loadSettings().homepage || DEFAULT_HOMEPAGE);
+
+    const view = new WebContentsView({
+      webPreferences: {
+        partition: ARENA_PARTITION,
+        preload: this.preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        backgroundThrottling: false,
+        spellcheck: true,
+      },
+    });
+    view.setBackgroundColor('#0b0b0e');
+
+    const tab: Tab = { id, view, url, favicon: '' };
+    this.tabs.set(id, tab);
+    this.order.push(id);
+    if (opts.activate !== false || this.activeId === -1) this.activeId = id;
+
+    this.wireEvents(tab);
+    attachContextMenu(view.webContents);
+    this.win.contentView.addChildView(view);
+
+    const defaultZoom = loadSettings().defaultZoomPercent;
+    if (defaultZoom !== 100) view.webContents.setZoomFactor(defaultZoom / 100);
+
+    void view.webContents.loadURL(url).catch((err) => console.warn(`[tabs] load failed:`, err));
+    this.layout();
+    this.hooks.onChanged();
+    return id;
+  }
+
+  closeTab(id: number): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    this.tabs.delete(id);
+    this.order = this.order.filter((t) => t !== id);
+    if (!this.win.isDestroyed()) {
+      this.win.contentView.removeChildView(tab.view);
+    }
+    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+
+    // 至少保留一個分頁：關掉最後一個時自動開一個首頁
+    if (this.order.length === 0) {
+      this.activeId = -1;
+      this.createTab(loadSettings().homepage || DEFAULT_HOMEPAGE);
+      return;
+    }
+    if (this.activeId === id) {
+      this.activeId = this.order[this.order.length - 1];
+    }
+    this.layout();
+    this.hooks.onChanged();
+  }
+
+  activateTab(id: number): void {
+    if (!this.tabs.has(id)) return;
+    this.activeId = id;
+    this.layout();
+    this.hooks.onChanged();
+  }
+
+  // ---------- 瀏覽操作（id 省略時作用於當前分頁） ----------
+
+  private target(id?: number): Tab | undefined {
+    return this.tabs.get(id ?? this.activeId);
+  }
+
+  reload(id?: number): void {
+    this.target(id)?.view.webContents.reload();
+  }
+
+  reloadActive(): void {
+    this.reload(this.activeId);
+  }
+
+  goBack(id?: number): void {
+    const t = this.target(id);
+    if (t && t.view.webContents.navigationHistory.canGoBack()) t.view.webContents.goBack();
+  }
+
+  goForward(id?: number): void {
+    const t = this.target(id);
+    if (t && t.view.webContents.navigationHistory.canGoForward()) t.view.webContents.goForward();
+  }
+
+  navigate(id: number | undefined, rawUrl: string): void {
+    const t = this.target(id);
+    if (!t) return;
+    const url = normalizeUrl(rawUrl);
+    t.url = url;
+    void t.view.webContents.loadURL(url).catch((err) => console.warn('[tabs] navigate failed:', err));
+    if (id !== undefined) this.activeId = t.id;
+    this.layout();
+    this.hooks.onChanged();
+  }
+
+  zoomIn(id?: number): void {
+    this.stepZoom(id, 1);
+  }
+
+  zoomOut(id?: number): void {
+    this.stepZoom(id, -1);
+  }
+
+  zoomReset(id?: number): void {
+    const t = this.target(id);
+    if (!t) return;
+    t.view.webContents.setZoomFactor(1);
+    this.hooks.onChanged();
+  }
+
+  private stepZoom(id: number | undefined, dir: 1 | -1): void {
+    const t = this.target(id);
+    if (!t) return;
+    const current = Math.round(t.view.webContents.getZoomFactor() * 100);
+    const next =
+      dir === 1
+        ? ZOOM_STEPS.find((s) => s > current) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1]
+        : [...ZOOM_STEPS].reverse().find((s) => s < current) ?? ZOOM_STEPS[0];
+    t.view.webContents.setZoomFactor(next / 100);
+    this.hooks.onChanged();
+  }
+
+  // ---------- 版面：只有當前分頁可見，佔滿工具列下方的區域 ----------
+
+  layout(): void {
+    if (this.win.isDestroyed()) return;
+    const [w, h] = this.win.getContentSize();
+    for (const [id, tab] of this.tabs) {
+      const active = id === this.activeId;
+      tab.view.setVisible(active);
+      if (active) {
+        tab.view.setBounds({
+          x: 0,
+          y: VIEW_TOP_OFFSET,
+          width: Math.max(0, w),
+          height: Math.max(0, h - VIEW_TOP_OFFSET),
+        });
+      }
+    }
+  }
+
+  list(): TabInfo[] {
+    return this.order
+      .map((id) => this.tabs.get(id))
+      .filter((t): t is Tab => !!t && !t.view.webContents.isDestroyed())
+      .map((t) => {
+        const wc = t.view.webContents;
+        const loading = wc.isLoading();
+        return {
+          id: t.id,
+          title: wc.getTitle() || (loading ? '載入中…' : '新分頁'),
+          url: t.url,
+          favicon: t.favicon,
+          active: t.id === this.activeId,
+          loading,
+          canGoBack: wc.navigationHistory.canGoBack(),
+          canGoForward: wc.navigationHistory.canGoForward(),
+          zoomPercent: Math.round(wc.getZoomFactor() * 100),
+        };
+      });
+  }
+
+  /** 目前所有分頁的網址（給「重啟還原分頁」用）。 */
+  allUrls(): string[] {
+    return this.list()
+      .map((t) => t.url)
+      .filter((u) => u.startsWith('http'));
+  }
+
+  destroy(): void {
+    for (const tab of this.tabs.values()) {
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+    }
+    this.tabs.clear();
+    this.order = [];
+  }
+
+  // ---------- 事件接線 ----------
+
+  private wireEvents(tab: Tab): void {
+    const wc = tab.view.webContents;
+    const emit = () => this.hooks.onChanged();
+
+    wc.on('page-title-updated', emit);
+    wc.on('page-favicon-updated', (_e, favicons) => {
+      if (favicons.length > 0) tab.favicon = favicons[favicons.length - 1];
+      emit();
+    });
+    wc.on('did-start-loading', emit);
+    wc.on('did-stop-loading', emit);
+    wc.on('did-navigate', (_e, url) => {
+      if (url.startsWith('http')) tab.url = url;
+      emit();
+    });
+    wc.on('did-navigate-in-page', (_e, url) => {
+      if (url.startsWith('http')) tab.url = url;
+      emit();
+    });
+    wc.on('zoom-changed', emit);
+
+    wc.on('did-fail-load', (_e, code, _desc, validatedURL, isMainFrame) => {
+      if (!isMainFrame || code === ERR_ABORTED) return;
+      if (validatedURL.startsWith('file:')) return; // 離線頁自己掛了就別再跳轉，避免無限迴圈
+      void wc.loadFile(offlinePagePath()).catch(() => {});
+      emit();
+    });
+
+    // 渲染進程崩潰時自動重載，比白畫面體驗好得多
+    wc.on('render-process-gone', (_e, details) => {
+      console.warn('[tabs] render-process-gone:', details.reason);
+      if (details.reason !== 'clean-exit' && !wc.isDestroyed()) wc.reload();
+    });
+    wc.on('unresponsive', () => console.warn(`[tabs] tab ${tab.id} unresponsive`));
+
+    // target=_blank / window.open（例如 Google 登入彈窗）：一律用 App 內彈窗開啟，
+    // 這樣 OAuth 回跳時 Cookie 還在同一個 session，登入才不會斷掉。
+    wc.setWindowOpenHandler(({ url }) => {
+      this.hooks.onOpenPopup(url);
+      return { action: 'deny' };
+    });
+  }
+}
+
+export function normalizeUrl(input: string): string {
+  const trimmed = input.trim();
+  if (/^\w+:\/\//.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
