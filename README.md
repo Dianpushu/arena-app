@@ -129,6 +129,17 @@ npm run dist:win
 
 ## 發佈新版本與自動更新
 
+### 發布 Beta 測試版
+
+1. 使用 `npm version 0.1.0-beta.1 --no-git-tag-version` 同步更新版本與 lockfile（後續測試版遞增尾碼）。
+2. 提交並推送目前的工作分支。
+3. 到 GitHub Actions → **Build Windows** → **Run workflow**，選擇該分支並勾選 `publish_prerelease`。
+4. CI 驗證版本必須為 `X.Y.Z-beta.N`，檢查型別、編譯並打包成功後，建立指向該次提交的 GitHub Pre-release，附上安裝版、免安裝版、`beta.yml` 與 `.blockmap`。不標記為 Latest；同名版本已存在時會失敗，不覆蓋既有版本。
+
+發布說明維護於 `.github/prerelease-notes.md`。一般 push 與未勾選發布選項的手動執行仍只打包，不發布。
+
+### 正式版
+
 自動更新的來源是 **GitHub Releases**，流程已經全自動：
 
 ```powershell

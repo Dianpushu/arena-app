@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_prerelease:
+        description: '打包成功後發布測試版（版本號必須包含 -beta.）'
+        type: boolean
+        default: false
 
 permissions:
   contents: write # 發佈 GitHub Release（自動更新的來源）需要
@@ -15,6 +20,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate prerelease version
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_prerelease
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+-beta\.\d+$') {
+            throw "Refusing to publish a non-beta version: $version"
+          }
 
       - uses: actions/setup-node@v4
         with:
@@ -38,3 +52,22 @@ jobs:
             dist-release/*.exe
             dist-release/*.yml
             dist-release/*.blockmap
+
+      - name: Publish GitHub prerelease
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $setup = "dist-release/Arena-Setup-$version.exe"
+          $portable = "dist-release/Arena-$version-portable.exe"
+          $metadata = 'dist-release/beta.yml'
+          $blockmap = "$setup.blockmap"
+          foreach ($path in @($setup, $portable, $metadata, $blockmap)) {
+            if (!(Test-Path $path)) { throw "Missing release asset: $path" }
+          }
+          gh release create "v$version" $setup $portable $metadata $blockmap `
+            --target "$env:GITHUB_SHA" --prerelease --latest=false `
+            --title "Arena v$version（測試版）" --notes-file .github/prerelease-notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to publish prerelease' }
