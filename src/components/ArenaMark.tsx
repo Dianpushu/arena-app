@@ -1,4 +1,4 @@
-// Arena 競技場標誌（UI 內嵌版）。SVG 本體只有一份：assets/icon.svg，
+// Arena 官方柱式標誌（UI 內嵌版）。SVG 本體只有一份：assets/icon.svg，
 // 這裡用 `?raw` 直接引入原始碼，因此永遠跟圖示檔同步。
 // 路徑使用 currentColor，會自動跟著深淺主題變色。
 

@@ -78,6 +78,7 @@ export interface ArenaAPI {
     create: (url?: string) => Promise<number>;
     close: (id: number) => Promise<void>;
     activate: (id: number) => Promise<void>;
+    move: (id: number, toIndex: number) => Promise<void>;
     reload: (id?: number) => Promise<void>;
     reloadActive: () => Promise<void>;
     goBack: (id?: number) => Promise<void>;

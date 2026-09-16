@@ -1,9 +1,9 @@
-// 從 assets/icon.svg（Arena 競技場標誌）產生桌面圖示：
+// 從 assets/icon.svg（Arena 官方柱式標誌）產生桌面圖示：
 //   - assets/icon.png（1024px：視窗圖示＋系統匣圖示用）
 //   - assets/icon.ico（多尺寸：Windows 安裝包＋工作列用）
 // 用法：npm run gen:icon（`npm run dist:win` 與 CI 都會自動先跑這一步）。
 //
-// 設計：官網的暖米色圓角底（#f5f1e8）＋ 深色標誌（#1c1917），
+// 設計：官網的暖米色圓角底（#f5f1e8）＋ 官方暖黑色標誌（#242422），
 // 在深淺色工作列上都清晰可辨。
 
 import fs from 'node:fs/promises';
@@ -20,7 +20,7 @@ const pngOut = path.join(root, 'assets', 'icon.png');
 const icoOut = path.join(root, 'assets', 'icon.ico');
 
 const BG = '#f5f1e8'; // 官網紙色
-const MARK = '#1c1917'; // 暖黑
+const MARK = '#242422'; // 官方標誌暖黑色
 const MARK_RATIO = 0.72; // 標誌佔邊長比例
 const CORNER_RATIO = 0.22; // 圓角比例
 
@@ -35,7 +35,13 @@ try {
 async function compose(size) {
   const svg = (await fs.readFile(svgPath, 'utf8')).replaceAll('currentColor', MARK);
   const markSize = Math.round(size * MARK_RATIO);
-  const mark = await sharp(Buffer.from(svg)).resize(markSize, markSize).png().toBuffer();
+  // 依目標尺寸提高渲染 density，讓向量直接輸出高解析點陣（避免先小圖再放大變糊）
+  const vb = svg.match(/viewBox="([\d.\-+eE\s]+)"/)?.[1].trim().split(/\s+/) ?? [0, 0, 512, 512];
+  const density = Math.max(72, Math.ceil((markSize / Number(vb[2])) * 72));
+  const mark = await sharp(Buffer.from(svg), { density })
+    .resize(markSize, markSize)
+    .png()
+    .toBuffer();
   const radius = Math.round(size * CORNER_RATIO);
   const mask = Buffer.from(
     `<svg width="${size}" height="${size}"><rect width="${size}" height="${size}" rx="${radius}" fill="#fff"/></svg>`,

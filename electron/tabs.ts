@@ -112,6 +112,19 @@ export class TabManager {
     this.hooks.onChanged();
   }
 
+  /** 拖曳排序：toIndex 是「拿掉被拖分頁之後」陣列的插入位置。 */
+  moveTab(id: number, toIndex: number): void {
+    if (!this.order.includes(id)) return;
+    const rest = this.order.filter((t) => t !== id);
+    const clamped = Math.max(0, Math.min(rest.length, toIndex));
+    const next = [...rest];
+    next.splice(clamped, 0, id);
+    // 順序沒變就不廣播，避免拖放抖動造成多餘渲染
+    if (next.every((v, i) => v === this.order[i])) return;
+    this.order = next;
+    this.hooks.onChanged();
+  }
+
   // ---------- 瀏覽操作（id 省略時作用於當前分頁） ----------
 
   private target(id?: number): Tab | undefined {

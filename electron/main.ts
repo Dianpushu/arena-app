@@ -254,6 +254,9 @@ function registerIpc(): void {
   ipcMain.handle('arena:tabs:create', (_e, url?: string) => tabs?.createTab(url) ?? -1);
   ipcMain.handle('arena:tabs:close', (_e, id: number) => tabs?.closeTab(id));
   ipcMain.handle('arena:tabs:activate', (_e, id: number) => tabs?.activateTab(id));
+  ipcMain.handle('arena:tabs:move', (_e, id: number, toIndex: number) =>
+    tabs?.moveTab(id, toIndex),
+  );
   ipcMain.handle('arena:tabs:reload', (_e, id?: number) => tabs?.reload(id));
   ipcMain.handle('arena:tabs:reload-active', () => tabs?.reloadActive());
   ipcMain.handle('arena:tabs:go-back', (_e, id?: number) => tabs?.goBack(id));

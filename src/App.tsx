@@ -138,6 +138,7 @@ export default function App() {
           maximized={maximized}
           onActivate={(id) => void arena.tabs.activate(id)}
           onClose={(id) => void arena.tabs.close(id)}
+          onMove={(id, toIndex) => void arena.tabs.move(id, toIndex)}
           onNew={newTab}
           onMinimize={() => void arena.window.minimize()}
           onToggleMaximize={() => void arena.window.toggleMaximize()}

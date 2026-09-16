@@ -116,6 +116,17 @@ function createMockApi(): ArenaAPI {
         tabs = tabs.map((t) => ({ ...t, active: t.id === id }));
         emitTabs();
       },
+      move: async (id: number, toIndex: number) => {
+        const from = tabs.findIndex((t) => t.id === id);
+        if (from === -1) return;
+        const rest = tabs.filter((t) => t.id !== id);
+        const clamped = Math.max(0, Math.min(rest.length, toIndex));
+        const next = [...rest];
+        next.splice(clamped, 0, tabs[from]);
+        if (next.every((t, i) => t.id === tabs[i].id)) return;
+        tabs = next;
+        emitTabs();
+      },
       reload: async () => {
         const a = active();
         tabs = tabs.map((t) => (t.id === a.id ? { ...t, loading: true } : t));

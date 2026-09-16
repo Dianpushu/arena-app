@@ -299,6 +299,35 @@ code {
   opacity: 0.75;
 }
 
+/* 分頁拖曳排序 */
+.tab {
+  position: relative;
+}
+
+.tab.dragging {
+  opacity: 0.4;
+}
+
+.tab.drop-before::before,
+.tab.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.tab.drop-before::before {
+  left: -4px;
+}
+
+.tab.drop-after::after {
+  right: -4px;
+}
+
 .window-controls {
   display: flex;
   align-items: stretch;

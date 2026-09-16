@@ -2,7 +2,7 @@
 
 **arena.ai 的非官方 Windows 桌面版**，用 Electron 打造：
 
-- 🗂️ **多分頁瀏覽**（開新分頁、還原上次分頁、上一頁/下一頁、縮放）
+- 🗂️ **多分頁瀏覽**（開新分頁、拖曳排序、還原上次分頁、上一頁/下一頁、縮放）
 - 📌 **系統匣常駐**（關閉縮到背景、用托盤選單或快捷鍵叫回）
 - ⌨️ **全域快捷鍵**（預設 `Ctrl+Shift+A`，可在設定裡自訂）
 - 🔔 **系統通知**（網站推播 → Windows 原生通知，可開關）
@@ -11,8 +11,10 @@
 - 🔐 **記住登入**（獨立持久化 session，重開 App 不掉登入；Google 登入彈窗在 App 內完成）
 - 📡 **斷線頁面**（沒網路時顯示友善重試頁，而不是白畫面）
 - 🖱️ **中文右鍵選單**（輸入框剪下/複製/貼上、連結用瀏覽器開啟）
+- 🎨 **官網同款外觀**（暖米紙色＋襯線字＋官方柱式標誌，另有深色主題可切換）
 
 > 免責聲明：這是社群自製的非官方客戶端，與 arena.ai 官方無關。
+> App 內使用的官方標誌商標權屬 Arena 所有，僅用於識別此客戶端連接的服務。
 
 ---
 
@@ -24,7 +26,7 @@
 - [專案結構](#專案結構)
 - [打包安裝包](#打包安裝包)
 - [發佈新版本與自動更新](#發佈新版本與自動更新)
-- [換圖示](#換圖示)
+- [圖示與外觀](#圖示與外觀)
 - [設定與資料位置](#設定與資料位置)
 - [常見問題](#常見問題)
 - [Roadmap](#roadmap)
@@ -92,7 +94,7 @@ arena-app/
 │   ├── api.ts           # window.arena 呼叫封裝＋瀏覽器預覽用 mock
 │   └── components/      # TitleBar / ToolBar / SettingsPanel / Toasts
 ├── public/offline.html  # 斷線時顯示的頁面
-├── assets/icon.svg      # 圖示來源（競技場標誌，換圖示只換這張）
+├── assets/icon.svg      # 圖示來源（官方柱式標誌，換圖示只換這張）
 ├── scripts/gen-icon.mjs # 從 PNG 產生 Windows .ico
 ├── electron-builder.yml # 打包設定（NSIS＋portable＋自動更新來源）
 └── .github/workflows/   # Windows 自動打包 CI
@@ -145,10 +147,15 @@ CI 會在 Windows 上打包並把 `.exe`＋`latest.yml` 上傳到該 tag 的 Rel
 ⚠️ **如果你 fork 或改名了這個 repo**，記得同步改 `electron-builder.yml` 的 `publish.owner/repo`，
 否則自動更新會去錯誤的地方找新版本。
 
-## 換圖示
+## 圖示與外觀
 
-1. 準備一張 512×512 以上的正方形 PNG，蓋掉 `assets/icon.png`
-2. 跑 `npm run gen:icon`（打包時也會自動跑，不跑也沒關係）
+- 圖示來源是 `assets/icon.svg`（Arena 官方 rebrand 柱式標誌，取自 https://arena.ai/images/favicon-rebrand.svg，僅把配色改為 currentColor 以跟隨 App 主題）。
+  `npm run gen:icon` 會自動產生米色圓角底的 `assets/icon.png`（1024px，視窗＋系統匣用）
+  與 `assets/icon.ico`（多尺寸，安裝包用）；打包時會自動跑，不用手動執行。
+- 要換圖示：用新的 SVG 蓋掉 `assets/icon.svg` 再跑 `npm run gen:icon` 即可。
+  標題列裡的標誌是直接引入同一份 SVG（`?raw`），會自動同步。
+- 外觀主題預設是跟官網同款的暖米色（`arena`），在設定裡可切換深色（`dark`）。
+  主題存在設定檔裡（見下表），切換即時生效，不用重開。
 
 ## 設定與資料位置
 
@@ -187,9 +194,8 @@ A：開發模式的終端機會直接印主進程 `console.log`；前端的 log 
 
 ## Roadmap
 
-- [ ] 分頁拖曳排序
 - [ ] 啟動時最小化到系統匣選項
-- [ ] 深色/淺色主題跟隨系統
+- [ ] 主題跟隨系統（目前為手動切換）
 - [ ] 下載管理（arena.ai 匯出對話時）
 - [ ] 程式碼簽署＋ Microsoft Store（MSIX）上架
 - [ ] macOS / Linux 打包

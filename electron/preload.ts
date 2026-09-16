@@ -17,6 +17,7 @@ const api: ArenaAPI = {
     create: (url?: string) => ipcRenderer.invoke('arena:tabs:create', url),
     close: (id: number) => ipcRenderer.invoke('arena:tabs:close', id),
     activate: (id: number) => ipcRenderer.invoke('arena:tabs:activate', id),
+    move: (id: number, toIndex: number) => ipcRenderer.invoke('arena:tabs:move', id, toIndex),
     reload: (id?: number) => ipcRenderer.invoke('arena:tabs:reload', id),
     reloadActive: () => ipcRenderer.invoke('arena:tabs:reload-active'),
     goBack: (id?: number) => ipcRenderer.invoke('arena:tabs:go-back', id),
