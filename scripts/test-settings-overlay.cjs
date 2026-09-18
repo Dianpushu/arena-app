@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, clipboard } = require('electron');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'arena-overlay-test-'));
 app.setPath('userData', userData);
@@ -92,6 +92,32 @@ async function run() {
     await original.webContents.executeJavaScript('document.querySelector("#draft").value'),
     'keep me',
   );
+
+  // 複製按鈕迴歸：網頁的 navigator.clipboard.writeText() 必須真的寫進系統剪貼簿。
+  // 過去 permission handler 對通知以外一律拒絕，網站收到 NotAllowedError，
+  // 使用者看到的現象就是「按下複製沒有作用」。
+  {
+    win.show();
+    win.focus();
+    original.webContents.focus();
+    const marker = `arena-copy-${Date.now()}`;
+    clipboard.writeText('stale-value');
+    const writeResult = await original.webContents.executeJavaScript(
+      `navigator.clipboard.writeText(${JSON.stringify(marker)}).then(() => 'ok', (e) => String(e))`,
+      true, // userGesture：消毒過的寫入需要使用者手勢才會走 clipboard-sanitized-write
+    );
+    assert.equal(writeResult, 'ok', `clipboard.writeText must resolve, got: ${writeResult}`);
+    assert.equal(clipboard.readText(), marker, 'copy button must reach the system clipboard');
+
+    // 讀取仍須受限：非 Arena 網域（此處為測試伺服器）不得讀走剪貼簿內容。
+    const readResult = await original.webContents.executeJavaScript(
+      `navigator.clipboard.readText().then(() => 'granted', () => 'denied')`,
+      true,
+    );
+    assert.equal(readResult, 'denied', 'clipboard read must stay denied for non-Arena origins');
+    assert.equal(clipboard.readText(), marker, 'denied read must not alter the clipboard');
+    clipboard.clear();
+  }
 
   // 設定期間建立／切換／導覽／關閉分頁都必須維持遮蔽狀態。
   await open();

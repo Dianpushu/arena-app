@@ -9,6 +9,9 @@
 - 所有特權 IPC 經 `assertTrustedUI`：必須是主 UI 的 WebContents、主 frame 及指定 `dist/index.html`（開發時指定 Vite URL）。只忽略主題 query / hash，不信任任意 file、localhost 或同 origin 的其他路徑。
 - 離線 retry 是獨立 IPC，驗證 sender 是否為 TabManager 管理的分頁，並確認主 frame 正顯示指定的 `offline.html`。只重試來源分頁的原網址。
 - 主 UI 禁止跳到其他文件、建立 popup 或附加 webview；所有視窗使用 context isolation、sandbox 並關閉 Node integration。
+- 權限預設全拒，但剪貼簿必須例外，否則網站的「複製」按鈕會靜默失效。Chromium 把非同步 Clipboard API 放在權限系統後面：`navigator.clipboard.writeText()` 在有使用者手勢且內容為標準格式時請求 `clipboard-sanitized-write`，否則（含讀取、自訂格式、無手勢）請求 `clipboard-read`。安裝了 permission handler 卻沒放行，網站只會收到 `NotAllowedError: Write permission denied` —— 按鈕有按到、剪貼簿是空的。策略：消毒過的寫入對任何 http(s) 文件放行（只能寫入、不能讀取，且需使用者手勢）；讀取與未消毒寫入僅限 `arena.ai` / `*.arena.ai`；`deprecated-sync-clipboard-read`、file/data/自訂協定、含帳密的網址一律拒絕。request 通道讀 `details.requestingUrl`，check 通道依序退回 `requestingUrl` / `embeddingOrigin` / `requestingOrigin`，取不到來源時視為拒絕。
+- Clipboard API 另外要求 `document.hasFocus()`。分頁切換、建立、關閉與網址列導覽都由 React UI 的 WebContents 觸發，焦點會留在 UI 上，網頁複製會以 `Document is not focused` 失敗，因此這些操作後主動把焦點交還當前內容分頁（設定面板開啟時不搶焦點）。
+- 右鍵選單的剪下／複製／貼上／全選明確綁定發出事件的 WebContents，不使用作用於「當前聚焦視窗」的 role；本 App 同時有主 UI 與多個內容 WebContentsView，role 會選錯對象。另提供「複製連結網址」。
 - 程式保留一般網站瀏覽，不限制 Arena 網域。使用者導覽、外部瀏覽器連結、右鍵連結、popup 與重新導向僅接受 HTTP(S)，拒絕 file/data/javascript/custom/mailto/tel 等協定，以及含明文帳密的網址。程式主動載入的指定 UI / offline 檔案是唯一的本機文件例外。
 - OAuth 回跳比較解析後的 origin（scheme、host、port），不使用字串前綴。來源 tab id 隨 popup 保留，回跳只重載來源，不切換活動分頁。這是桌面容器回跳偵測，不取代網站本身的 OAuth state / PKCE 驗證。
 
@@ -47,6 +50,6 @@ npm run build
 npm run test:electron
 ```
 
-- 純函式／單元測試：協定與 origin、IPC sender/frame/document、preload 隔離、設定驗證、atomic write 故障與併發、排序／zoom、updater timer 清理。
-- 真正 Electron 整合測試：設定遮擋回歸、全部特權 IPC 的不可信視窗拒絕、協定封鎖、OAuth 來源分頁、全部分頁清除資料／重建、離線重試、UI 重載／崩潰復原、立即退出的分頁 flush。
+- 純函式／單元測試：協定與 origin、IPC sender/frame/document、preload 隔離、設定驗證、atomic write 故障與併發、排序／zoom、updater timer 清理、剪貼簿權限矩陣（權限名稱／來源／欄位退回）。
+- 真正 Electron 整合測試：設定遮擋回歸、全部特權 IPC 的不可信視窗拒絕、協定封鎖、OAuth 來源分頁、全部分頁清除資料／重建、離線重試、UI 重載／崩潰復原、立即退出的分頁 flush，以及網頁 `navigator.clipboard.writeText()` 真的寫進系統剪貼簿、非 Arena 來源讀取仍被拒。
 - OAuth 使用本機 fixture，不會登入真實帳號；尚需驗證 Google 實際登入、長時間背景通知、Windows 重啟／登出，以及 NSIS 安裝更新端到端流程。沒有進行記憶體壓力測試，也不宣稱 backgroundThrottling 可消除所有背景資源消耗。
