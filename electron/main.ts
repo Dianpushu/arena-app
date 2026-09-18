@@ -310,7 +310,10 @@ async function prepareQuit(): Promise<void> {
 
 function openPopup(url: string, sourceTabId: number): void {
   if (!win || quitting || dataClear || !isHttpUrl(url)) return;
-  const returnOrigin = loadSettings().homepage;
+  // OAuth 完成跳回「來源分頁的 origin」就關窗並重整來源。
+  // 之前用 settings.homepage 判斷，但首頁可以自訂成其他網站，
+  // 改掉之後 Google 登入跳回 arena.ai 時彈窗就不會自動關閉了。
+  const returnOrigin = tabs?.tabOrigin(sourceTabId) ?? DEFAULT_HOMEPAGE;
   const popup = new BrowserWindow({
     width: 560,
     height: 700,

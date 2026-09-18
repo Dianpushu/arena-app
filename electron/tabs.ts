@@ -3,7 +3,14 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { normalizeUrl, isHttpUrl, isSameDocument } from './url-policy';
 import { guardWebNavigation } from './navigation';
-import { moveTabOrder, nextZoom } from './tab-utils';
+import {
+  moveTabOrder,
+  nextZoom,
+  browserShortcutAction,
+  BrowserShortcut,
+  crashAutoReload,
+  offlinePageQuery,
+} from './tab-utils';
 import { AppTheme, DEFAULT_HOMEPAGE, MAX_TABS, TabInfo, VIEW_TOP_OFFSET } from './shared';
 import { loadSettings } from './settings';
 import { attachContextMenu } from './context-menu';
@@ -28,6 +35,8 @@ interface Tab {
   /** 最後一次成功載入的 http(s) 網址（顯示在網址列；離線頁是 file:// 不覆蓋它）。 */
   url: string;
   favicon: string;
+  /** render-process-gone 的時間戳；滾動窗口內重複崩潰時停止自動重載（見 crashAutoReload）。 */
+  crashTimes: number[];
 }
 
 let nextId = 1;
@@ -74,7 +83,7 @@ export class TabManager {
     });
     view.setBackgroundColor(loadSettings().theme === 'dark' ? '#1c1917' : '#f5f0e8');
 
-    const tab: Tab = { id, view, url, favicon: '' };
+    const tab: Tab = { id, view, url, favicon: '', crashTimes: [] };
     this.tabs.set(id, tab);
     this.order.push(id);
     if (opts.activate !== false || this.activeId === -1) this.activeId = id;
@@ -272,6 +281,18 @@ export class TabManager {
       .filter(isHttpUrl);
   }
 
+  /** 彈窗（OAuth 等）完成後應該跳回的 origin：來源分頁最後載入的 http(s) origin。
+   *  找不到分頁或網址無效時回 null，由呼叫端決定 fallback。 */
+  tabOrigin(id: number): string | null {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+    try {
+      return new URL(tab.url).origin;
+    } catch {
+      return null;
+    }
+  }
+
   destroy(): void {
     for (const tab of this.tabs.values()) {
       if (!this.win.isDestroyed()) this.win.contentView.removeChildView(tab.view);
@@ -300,9 +321,11 @@ export class TabManager {
   updateTheme(theme: AppTheme): void {
     for (const tab of this.tabs.values()) {
       tab.view.setBackgroundColor(theme === 'dark' ? '#1c1917' : '#f5f0e8');
-      if (isSameDocument(tab.view.webContents.getURL(), pathToFileURL(offlinePagePath()).href)) {
+      const current = tab.view.webContents.getURL();
+      if (isSameDocument(current, pathToFileURL(offlinePagePath()).href)) {
+        // 保留原有的 reason（崩潰頁）：切換主題不該把崩潰文案打回一般離線頁。
         void tab.view.webContents
-          .loadFile(offlinePagePath(), { query: { theme } })
+          .loadFile(offlinePagePath(), { query: offlinePageQuery(theme, current) })
           .catch(console.error);
       }
     }
@@ -332,6 +355,62 @@ export class TabManager {
 
   // ---------- 事件接線 ----------
 
+  /** 執行內容分頁發出的瀏覽器快捷鍵（作用於發出事件的那個分頁）。 */
+  private runBrowserShortcut(tabId: number, action: BrowserShortcut): void {
+    switch (action) {
+      case 'new-tab':
+        if (this.clearing) return;
+        try {
+          this.createTab();
+        } catch (err) {
+          console.warn('[tabs] shortcut new-tab failed:', err);
+          // 跟 UI 端 Ctrl+T 一樣要讓使用者看到原因（例如已達分頁上限）。
+          this.notifyUI(String(err));
+          return;
+        }
+        // 跟 UI 端 Ctrl+T 行為一致：開新分頁後聚焦網址列。
+        this.focusUIUrlBar();
+        return;
+      case 'close-tab':
+        this.closeTab(tabId);
+        return;
+      case 'reload':
+        this.reload(tabId);
+        return;
+      case 'back':
+        this.goBack(tabId);
+        return;
+      case 'forward':
+        this.goForward(tabId);
+        return;
+      case 'zoom-in':
+        this.zoomIn(tabId);
+        return;
+      case 'zoom-out':
+        this.zoomOut(tabId);
+        return;
+      case 'zoom-reset':
+        this.zoomReset(tabId);
+        return;
+      case 'focus-url':
+        this.focusUIUrlBar();
+        return;
+    }
+  }
+
+  /** 把鍵盤焦點交回主 UI 並要求聚焦網址列（Ctrl+L / Ctrl+T 用）。 */
+  private focusUIUrlBar(): void {
+    if (this.win.isDestroyed()) return;
+    this.win.webContents.focus();
+    this.win.webContents.send('arena:ui:focus-url');
+  }
+
+  /** 請主 UI 顯示一則提示（main → renderer 單向通知，不涉及特權 invoke）。 */
+  private notifyUI(text: string): void {
+    if (this.win.isDestroyed()) return;
+    this.win.webContents.send('arena:ui:notice', text);
+  }
+
   private wireEvents(tab: Tab): void {
     const wc = tab.view.webContents;
     const emit = () => this.hooks.onChanged();
@@ -359,6 +438,18 @@ export class TabManager {
     });
     wc.on('zoom-changed', emit);
 
+    // 內容分頁持有鍵盤焦點時，React UI 收不到 keydown，瀏覽器級快捷鍵
+    // （Ctrl+T / Ctrl+W / Ctrl+L / 縮放 / F5 / Alt+方向鍵）會完全失效。
+    // 在主進程的輸入管線攔截：只攔瀏覽器組合鍵，其餘按鍵原樣放行給網頁，
+    // 不影響聊天輸入與網頁自身的快捷鍵（例如送出訊息）。
+    wc.on('before-input-event', (event, input) => {
+      // process.platform：macOS 的 Option+←/→ 是文字游標移動，不當成瀏覽器導覽。
+      const action = browserShortcutAction({ ...input, platform: process.platform });
+      if (!action) return;
+      event.preventDefault();
+      this.runBrowserShortcut(tab.id, action);
+    });
+
     wc.on('did-fail-load', (_e, code, _desc, validatedURL, isMainFrame) => {
       if (!isMainFrame || code === ERR_ABORTED) return;
       if (validatedURL.startsWith('file:')) return; // 離線頁自己掛了就別再跳轉，避免無限迴圈
@@ -368,10 +459,25 @@ export class TabManager {
       emit();
     });
 
-    // 渲染進程崩潰時自動重載，比白畫面體驗好得多
+    // 渲染進程崩潰時自動重載，比白畫面體驗好得多；但同一分頁在滾動窗口內
+    // 重複崩潰時停止自動重載、改顯示離線頁，避免「崩潰→重載→崩潰」無限迴圈
+    // 持續燒 CPU（例如頁面一載入就崩潰）。
     wc.on('render-process-gone', (_e, details) => {
       console.warn('[tabs] render-process-gone:', details.reason);
-      if (details.reason !== 'clean-exit' && !wc.isDestroyed()) wc.reload();
+      if (details.reason === 'clean-exit' || wc.isDestroyed()) return;
+      const verdict = crashAutoReload(tab.crashTimes, Date.now());
+      tab.crashTimes = verdict.crashTimes;
+      if (!verdict.reload) {
+        console.warn(`[tabs] tab ${tab.id} 崩潰過於頻繁，改顯示離線頁而非自動重載`);
+        void wc
+          .loadFile(offlinePagePath(), {
+            query: { theme: loadSettings().theme, reason: 'crash' },
+          })
+          .catch(() => {});
+        emit();
+        return;
+      }
+      wc.reload();
     });
     wc.on('unresponsive', () => console.warn(`[tabs] tab ${tab.id} unresponsive`));
 
