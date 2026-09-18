@@ -34,6 +34,10 @@ const api: ArenaAPI = {
     hide: () => ipcRenderer.invoke('arena:window:hide'),
     isMaximized: () => ipcRenderer.invoke('arena:window:is-maximized'),
     onMaximized: (cb: (max: boolean) => void) => sub('arena:window:maximized', cb),
+    onFocusUrl: (cb: () => void) => {
+      const off = sub('arena:ui:focus-url', () => cb());
+      return off;
+    },
   },
   settings: {
     setOpen: (open: boolean) => ipcRenderer.invoke('arena:settings:set-open', open),

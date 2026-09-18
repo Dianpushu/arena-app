@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { normalizeUrl, isHttpUrl, isSameDocument } from './url-policy';
 import { guardWebNavigation } from './navigation';
-import { moveTabOrder, nextZoom } from './tab-utils';
+import { moveTabOrder, nextZoom, browserShortcutAction, BrowserShortcut } from './tab-utils';
 import { AppTheme, DEFAULT_HOMEPAGE, MAX_TABS, TabInfo, VIEW_TOP_OFFSET } from './shared';
 import { loadSettings } from './settings';
 import { attachContextMenu } from './context-menu';
@@ -332,6 +332,54 @@ export class TabManager {
 
   // ---------- 事件接線 ----------
 
+  /** 執行內容分頁發出的瀏覽器快捷鍵（作用於發出事件的那個分頁）。 */
+  private runBrowserShortcut(tabId: number, action: BrowserShortcut): void {
+    switch (action) {
+      case 'new-tab':
+        if (this.clearing) return;
+        try {
+          this.createTab();
+        } catch (err) {
+          console.warn('[tabs] shortcut new-tab failed:', err);
+          return;
+        }
+        // 跟 UI 端 Ctrl+T 行為一致：開新分頁後聚焦網址列。
+        this.focusUIUrlBar();
+        return;
+      case 'close-tab':
+        this.closeTab(tabId);
+        return;
+      case 'reload':
+        this.reload(tabId);
+        return;
+      case 'back':
+        this.goBack(tabId);
+        return;
+      case 'forward':
+        this.goForward(tabId);
+        return;
+      case 'zoom-in':
+        this.zoomIn(tabId);
+        return;
+      case 'zoom-out':
+        this.zoomOut(tabId);
+        return;
+      case 'zoom-reset':
+        this.zoomReset(tabId);
+        return;
+      case 'focus-url':
+        this.focusUIUrlBar();
+        return;
+    }
+  }
+
+  /** 把鍵盤焦點交回主 UI 並要求聚焦網址列（Ctrl+L / Ctrl+T 用）。 */
+  private focusUIUrlBar(): void {
+    if (this.win.isDestroyed()) return;
+    this.win.webContents.focus();
+    this.win.webContents.send('arena:ui:focus-url');
+  }
+
   private wireEvents(tab: Tab): void {
     const wc = tab.view.webContents;
     const emit = () => this.hooks.onChanged();
@@ -358,6 +406,17 @@ export class TabManager {
       if (isMainFrame) navigated(url);
     });
     wc.on('zoom-changed', emit);
+
+    // 內容分頁持有鍵盤焦點時，React UI 收不到 keydown，瀏覽器級快捷鍵
+    // （Ctrl+T / Ctrl+W / Ctrl+L / 縮放 / F5 / Alt+方向鍵）會完全失效。
+    // 在主進程的輸入管線攔截：只攔瀏覽器組合鍵，其餘按鍵原樣放行給網頁，
+    // 不影響聊天輸入與網頁自身的快捷鍵（例如送出訊息）。
+    wc.on('before-input-event', (event, input) => {
+      const action = browserShortcutAction(input);
+      if (!action) return;
+      event.preventDefault();
+      this.runBrowserShortcut(tab.id, action);
+    });
 
     wc.on('did-fail-load', (_e, code, _desc, validatedURL, isMainFrame) => {
       if (!isMainFrame || code === ERR_ABORTED) return;

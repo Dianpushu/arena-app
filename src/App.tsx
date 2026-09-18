@@ -59,11 +59,14 @@ export default function App() {
     const offSettings = arena.settings.onChanged(setSettings);
     const offMax = arena.window.onMaximized(setMaximized);
     const offUpdate = arena.app.onUpdateStatus(setUpdate);
+    // 內容分頁持有焦點時按 Ctrl+L / Ctrl+T：主進程把焦點交回 UI 並觸發網址列聚焦。
+    const offFocusUrl = arena.window.onFocusUrl(() => setUrlFocusToken((n) => n + 1));
     return () => {
       offTabs();
       offSettings();
       offMax();
       offUpdate();
+      offFocusUrl();
     };
   }, []);
 

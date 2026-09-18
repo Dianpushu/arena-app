@@ -93,6 +93,8 @@ export interface ArenaAPI {
     hide: () => Promise<void>;
     isMaximized: () => Promise<boolean>;
     onMaximized: (cb: (max: boolean) => void) => () => void;
+    /** 內容分頁的 Ctrl+L / Ctrl+T：主進程把焦點交回 UI，並要求聚焦網址列。 */
+    onFocusUrl: (cb: () => void) => () => void;
   };
   settings: {
     /** 暫時隱藏原生網頁內容，讓本機設定面板可見；不寫入使用者設定。 */

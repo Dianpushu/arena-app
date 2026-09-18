@@ -8,7 +8,7 @@ const {
   isSameDocument,
 } = require('../dist-electron/url-policy');
 const { validateSettings, editableSettingsPatch } = require('../dist-electron/settings-schema');
-const { moveTabOrder, nextZoom } = require('../dist-electron/tab-utils');
+const { moveTabOrder, nextZoom, browserShortcutAction } = require('../dist-electron/tab-utils');
 const { assertTrustedUI } = require('../dist-electron/ipc-security');
 
 test('navigation rejects non-web protocols and malformed/credential URLs', () => {
@@ -113,6 +113,60 @@ test('tab ordering clamps indices and rejects non-integers; zoom has safe endpoi
   assert.equal(nextZoom(100, -1), 90);
   assert.equal(nextZoom(500, 1), 500);
   assert.equal(nextZoom(25, -1), 25);
+});
+
+// ---------- browser shortcuts (content focus) ----------
+test('browserShortcutAction maps only browser combos and ignores repeats/keyup/char', () => {
+  const base = {
+    type: 'rawKeyDown',
+    key: 't',
+    control: true,
+    meta: false,
+    alt: false,
+    shift: false,
+    isAutoRepeat: false,
+  };
+  const merge = (over) => ({ ...base, ...over });
+
+  // 瀏覽器組合鍵命中
+  assert.equal(browserShortcutAction(merge({ key: 't' })), 'new-tab');
+  assert.equal(browserShortcutAction(merge({ key: 'T' })), 'new-tab');
+  assert.equal(browserShortcutAction(merge({ key: 'w' })), 'close-tab');
+  assert.equal(browserShortcutAction(merge({ key: 'r' })), 'reload');
+  assert.equal(browserShortcutAction(merge({ key: 'l' })), 'focus-url');
+  assert.equal(browserShortcutAction(merge({ key: '+' })), 'zoom-in');
+  assert.equal(browserShortcutAction(merge({ key: '=' })), 'zoom-in');
+  assert.equal(browserShortcutAction(merge({ key: '-' })), 'zoom-out');
+  assert.equal(browserShortcutAction(merge({ key: '0' })), 'zoom-reset');
+  assert.equal(browserShortcutAction(merge({ key: '0', control: false })), null); // 純 0 不攔
+  assert.equal(browserShortcutAction(merge({ key: 'F5', control: false })), 'reload');
+  assert.equal(
+    browserShortcutAction(merge({ key: 'ArrowLeft', control: false, alt: true })),
+    'back',
+  );
+  assert.equal(
+    browserShortcutAction(merge({ key: 'ArrowRight', control: false, alt: true })),
+    'forward',
+  );
+  assert.equal(
+    browserShortcutAction(merge({ key: 'ArrowLeft', control: false, alt: true, meta: true })),
+    null,
+  ); // Alt+Win+← 不攔（Win+← 是系統分割視窗）
+
+  // 不屬於瀏覽器的按鍵一律放行
+  for (const key of ['a', 'Enter', ' ', 'ArrowLeft', 'Tab', 'Escape', 'F12', 'Process']) {
+    assert.equal(browserShortcutAction(merge({ key, control: false })), null, `plain ${key}`);
+    assert.equal(browserShortcutAction(merge({ key })), null, `ctrl+${key}`);
+  }
+
+  // 事件種類與 auto-repeat 過濾
+  assert.equal(browserShortcutAction(merge({ type: 'keyDown' })), 'new-tab');
+  assert.equal(browserShortcutAction(merge({ type: 'keyUp' })), null);
+  assert.equal(browserShortcutAction(merge({ type: 'char' })), null);
+  assert.equal(browserShortcutAction(merge({ isAutoRepeat: true })), null);
+
+  // Alt 與 Ctrl 同時按時不當瀏覽器快捷鍵（例如選單存取鍵 Alt+字母）
+  assert.equal(browserShortcutAction(merge({ key: 't', alt: true })), null);
 });
 
 test('IPC requires the exact UI WebContents, main frame and UI document', () => {
