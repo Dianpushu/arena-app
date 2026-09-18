@@ -272,6 +272,18 @@ export class TabManager {
       .filter(isHttpUrl);
   }
 
+  /** 彈窗（OAuth 等）完成後應該跳回的 origin：來源分頁最後載入的 http(s) origin。
+   *  找不到分頁或網址無效時回 null，由呼叫端決定 fallback。 */
+  tabOrigin(id: number): string | null {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+    try {
+      return new URL(tab.url).origin;
+    } catch {
+      return null;
+    }
+  }
+
   destroy(): void {
     for (const tab of this.tabs.values()) {
       if (!this.win.isDestroyed()) this.win.contentView.removeChildView(tab.view);
