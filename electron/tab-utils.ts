@@ -1,5 +1,9 @@
 const ZOOM_STEPS = [25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500];
 
+/** 崩潰自動重載防迴圈：滾動時間窗（ms）與自動重載次數上限。 */
+export const CRASH_LOOP_WINDOW_MS = 30_000;
+export const CRASH_LOOP_LIMIT = 3;
+
 export function nextZoom(current: number, direction: 1 | -1): number {
   return direction === 1
     ? (ZOOM_STEPS.find((step) => step > current) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1])
@@ -64,4 +68,20 @@ export function browserShortcutAction(input: {
   }
   if (!mod && !input.alt && input.key === 'F5') return 'reload';
   return null;
+}
+
+/**
+ * 崩潰自動重載的節流政策：把本次崩潰併入滾動時間窗內的歷史，
+ * 回傳「是否繼續自動重載」與更新後的時間戳陣列。
+ * 窗口內崩潰（含本次）超過上限就不再自動重載，避免「崩潰→重載→崩潰」無限迴圈。
+ */
+export function crashAutoReload(
+  crashTimes: number[],
+  now: number,
+  windowMs: number = CRASH_LOOP_WINDOW_MS,
+  limit: number = CRASH_LOOP_LIMIT,
+): { reload: boolean; crashTimes: number[] } {
+  const next = crashTimes.filter((t) => now - t < windowMs);
+  next.push(now);
+  return { reload: next.length <= limit, crashTimes: next };
 }

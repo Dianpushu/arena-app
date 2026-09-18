@@ -8,7 +8,12 @@ const {
   isSameDocument,
 } = require('../dist-electron/url-policy');
 const { validateSettings, editableSettingsPatch } = require('../dist-electron/settings-schema');
-const { moveTabOrder, nextZoom, browserShortcutAction } = require('../dist-electron/tab-utils');
+const {
+  moveTabOrder,
+  nextZoom,
+  browserShortcutAction,
+  crashAutoReload,
+} = require('../dist-electron/tab-utils');
 const { assertTrustedUI } = require('../dist-electron/ipc-security');
 
 test('navigation rejects non-web protocols and malformed/credential URLs', () => {
@@ -167,6 +172,34 @@ test('browserShortcutAction maps only browser combos and ignores repeats/keyup/c
 
   // Alt 與 Ctrl 同時按時不當瀏覽器快捷鍵（例如選單存取鍵 Alt+字母）
   assert.equal(browserShortcutAction(merge({ key: 't', alt: true })), null);
+});
+
+// ---------- crash auto-reload throttle ----------
+test('crashAutoReload stops reloading after repeated crashes, then recovers after the window', () => {
+  const t0 = 1_000_000;
+  let times = [];
+  // 窗口內前 3 次崩潰 → 仍自動重載
+  for (let i = 0; i < 3; i++) {
+    const r = crashAutoReload(times, t0 + i * 1000);
+    assert.equal(r.reload, true, `crash #${i + 1} should auto-reload`);
+    times = r.crashTimes;
+  }
+  // 第 4 次（仍在窗口內）→ 停止自動重載
+  const fourth = crashAutoReload(times, t0 + 5_000);
+  assert.equal(fourth.reload, false);
+  times = fourth.crashTimes;
+  assert.equal(times.length, 4);
+  // 窗口滾過之後：舊時間被修剪，恢復自動重載
+  const later = crashAutoReload(times, t0 + 5_000 + 31_000);
+  assert.equal(later.reload, true);
+  assert.equal(later.crashTimes.length, 1);
+  // 窗口滾過後恢復計數：接下來 2、3 次仍可自動重載，第 4 次再次擋下
+  const immediate = crashAutoReload(later.crashTimes, t0 + 5_000 + 31_500);
+  assert.equal(immediate.reload, true); // 窗口內第 2 次，還可以
+  const again = crashAutoReload(immediate.crashTimes, t0 + 5_000 + 32_000);
+  assert.equal(again.reload, true); // 第 3 次，仍可
+  const overflow = crashAutoReload(again.crashTimes, t0 + 5_000 + 32_500);
+  assert.equal(overflow.reload, false); // 第 4 次，擋下
 });
 
 test('IPC requires the exact UI WebContents, main frame and UI document', () => {

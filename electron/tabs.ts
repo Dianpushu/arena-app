@@ -3,7 +3,13 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { normalizeUrl, isHttpUrl, isSameDocument } from './url-policy';
 import { guardWebNavigation } from './navigation';
-import { moveTabOrder, nextZoom, browserShortcutAction, BrowserShortcut } from './tab-utils';
+import {
+  moveTabOrder,
+  nextZoom,
+  browserShortcutAction,
+  BrowserShortcut,
+  crashAutoReload,
+} from './tab-utils';
 import { AppTheme, DEFAULT_HOMEPAGE, MAX_TABS, TabInfo, VIEW_TOP_OFFSET } from './shared';
 import { loadSettings } from './settings';
 import { attachContextMenu } from './context-menu';
@@ -28,6 +34,8 @@ interface Tab {
   /** 最後一次成功載入的 http(s) 網址（顯示在網址列；離線頁是 file:// 不覆蓋它）。 */
   url: string;
   favicon: string;
+  /** render-process-gone 的時間戳；滾動窗口內重複崩潰時停止自動重載（見 crashAutoReload）。 */
+  crashTimes: number[];
 }
 
 let nextId = 1;
@@ -74,7 +82,7 @@ export class TabManager {
     });
     view.setBackgroundColor(loadSettings().theme === 'dark' ? '#1c1917' : '#f5f0e8');
 
-    const tab: Tab = { id, view, url, favicon: '' };
+    const tab: Tab = { id, view, url, favicon: '', crashTimes: [] };
     this.tabs.set(id, tab);
     this.order.push(id);
     if (opts.activate !== false || this.activeId === -1) this.activeId = id;
@@ -439,10 +447,25 @@ export class TabManager {
       emit();
     });
 
-    // 渲染進程崩潰時自動重載，比白畫面體驗好得多
+    // 渲染進程崩潰時自動重載，比白畫面體驗好得多；但同一分頁在滾動窗口內
+    // 重複崩潰時停止自動重載、改顯示離線頁，避免「崩潰→重載→崩潰」無限迴圈
+    // 持續燒 CPU（例如頁面一載入就崩潰）。
     wc.on('render-process-gone', (_e, details) => {
       console.warn('[tabs] render-process-gone:', details.reason);
-      if (details.reason !== 'clean-exit' && !wc.isDestroyed()) wc.reload();
+      if (details.reason === 'clean-exit' || wc.isDestroyed()) return;
+      const verdict = crashAutoReload(tab.crashTimes, Date.now());
+      tab.crashTimes = verdict.crashTimes;
+      if (!verdict.reload) {
+        console.warn(`[tabs] tab ${tab.id} 崩潰過於頻繁，改顯示離線頁而非自動重載`);
+        void wc
+          .loadFile(offlinePagePath(), {
+            query: { theme: loadSettings().theme, reason: 'crash' },
+          })
+          .catch(() => {});
+        emit();
+        return;
+      }
+      wc.reload();
     });
     wc.on('unresponsive', () => console.warn(`[tabs] tab ${tab.id} unresponsive`));
 
