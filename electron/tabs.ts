@@ -443,7 +443,8 @@ export class TabManager {
     // 在主進程的輸入管線攔截：只攔瀏覽器組合鍵，其餘按鍵原樣放行給網頁，
     // 不影響聊天輸入與網頁自身的快捷鍵（例如送出訊息）。
     wc.on('before-input-event', (event, input) => {
-      const action = browserShortcutAction(input);
+      // process.platform：macOS 的 Option+←/→ 是文字游標移動，不當成瀏覽器導覽。
+      const action = browserShortcutAction({ ...input, platform: process.platform });
       if (!action) return;
       event.preventDefault();
       this.runBrowserShortcut(tab.id, action);

@@ -45,6 +45,8 @@ export function browserShortcutAction(input: {
   alt: boolean;
   shift: boolean;
   isAutoRepeat: boolean;
+  /** 目前平台（process.platform）。macOS 的 Option+←/→ 是文字游標移動，不能當成上一頁/下一頁。 */
+  platform?: string;
 }): BrowserShortcut | null {
   // 同一次實體按鍵只會以 rawKeyDown 或 keyDown 其中一種送達；char / keyUp 不攔。
   if (input.type !== 'keyDown' && input.type !== 'rawKeyDown') return null;
@@ -54,6 +56,7 @@ export function browserShortcutAction(input: {
   const key = input.key.toLowerCase();
 
   if (input.alt && !mod) {
+    if (input.platform === 'darwin') return null;
     if (input.key === 'ArrowLeft') return 'back';
     if (input.key === 'ArrowRight') return 'forward';
     return null;

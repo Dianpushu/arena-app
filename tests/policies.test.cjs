@@ -173,6 +173,20 @@ test('browserShortcutAction maps only browser combos and ignores repeats/keyup/c
 
   // Alt 與 Ctrl 同時按時不當瀏覽器快捷鍵（例如選單存取鍵 Alt+字母）
   assert.equal(browserShortcutAction(merge({ key: 't', alt: true })), null);
+
+  // macOS 的 Option+←/→ 是文字游標移動：不攔，原樣放行給網頁
+  for (const key of ['ArrowLeft', 'ArrowRight']) {
+    assert.equal(
+      browserShortcutAction(merge({ key, control: false, alt: true, platform: 'darwin' })),
+      null,
+      `darwin alt+${key}`,
+    );
+    // 其他平台（含未指定）維持上一頁/下一頁
+    assert.equal(
+      browserShortcutAction(merge({ key, control: false, alt: true, platform: 'win32' })),
+      key === 'ArrowLeft' ? 'back' : 'forward',
+    );
+  }
 });
 
 // ---------- crash auto-reload throttle ----------
