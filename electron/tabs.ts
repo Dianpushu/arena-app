@@ -88,6 +88,7 @@ export class TabManager {
 
     void view.webContents.loadURL(url).catch((err) => console.warn(`[tabs] load failed:`, err));
     this.layout();
+    if (this.activeId === id) this.focusActive();
     this.hooks.onChanged();
     this.hooks.onPersist();
     return id;
@@ -113,6 +114,7 @@ export class TabManager {
       this.activeId = this.order[this.order.length - 1];
     }
     this.layout();
+    this.focusActive();
     this.hooks.onChanged();
     this.hooks.onPersist();
   }
@@ -121,7 +123,17 @@ export class TabManager {
     if (!this.tabs.has(id)) return;
     this.activeId = id;
     this.layout();
+    this.focusActive();
     this.hooks.onChanged();
+  }
+
+  /** 從 React UI（分頁列／工具列）操作後，鍵盤焦點會留在 UI WebContents 上。
+   * Chromium 的 Clipboard API 要求 document.hasFocus()，焦點沒回到網頁時
+   * 「複製」會以 NotAllowedError: Document is not focused 失敗，所以要主動交還焦點。 */
+  focusActive(): void {
+    if (this.win.isDestroyed() || this.contentObscured) return;
+    const wc = this.target()?.view.webContents;
+    if (wc && !wc.isDestroyed()) wc.focus();
   }
 
   /** 拖曳排序：toIndex 是「拿掉被拖分頁之後」陣列的插入位置。 */
@@ -175,6 +187,7 @@ export class TabManager {
       .catch((err) => console.warn('[tabs] navigate failed:', err));
     if (id !== undefined) this.activeId = t.id;
     this.layout();
+    this.focusActive();
     this.hooks.onChanged();
   }
 

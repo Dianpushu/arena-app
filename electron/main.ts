@@ -14,6 +14,11 @@ import { AppUpdater } from './updater';
 import { attachContextMenu } from './context-menu';
 import { AppSettings, DEFAULT_HOMEPAGE, MAX_TABS } from './shared';
 import { isAllowedNotificationOrigin, isAllowedNotificationUrl } from './notification-policy';
+import {
+  allowClipboardPermission,
+  isClipboardPermission,
+  resolveRequestingUrl,
+} from './clipboard-policy';
 import { getVisibleWindowBounds } from './window-bounds';
 
 const isDev = !app.isPackaged && process.env.ARENA_DEV === '1';
@@ -110,9 +115,21 @@ async function startup(): Promise<void> {
   });
   win.webContents.on('will-attach-webview', (event) => event.preventDefault());
 
-  // 權限：通知僅允許 arena.ai / *.arena.ai，且受設定控制；其餘一律拒絕
+  // 權限：
+  // - 通知僅允許 arena.ai / *.arena.ai，且受設定控制。
+  // - 剪貼簿：消毒過的寫入（就是網頁的「複製」按鈕）放行；讀取僅限 Arena 網域。
+  //   沒有這一條，navigator.clipboard.writeText() 會被拒絕，複製按鈕按了沒反應。
+  // - 其餘（相機、麥克風、定位、螢幕擷取…）一律拒絕。
   const ses = session.fromPartition(ARENA_PARTITION);
   ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    if (isClipboardPermission(permission)) {
+      const url = resolveRequestingUrl(
+        (details as { requestingUrl?: string }).requestingUrl,
+        wc.getURL(),
+      );
+      callback(allowClipboardPermission(permission, url));
+      return;
+    }
     if (permission !== 'notifications') {
       callback(false);
       return;
@@ -124,7 +141,15 @@ async function startup(): Promise<void> {
     const url = (details as { requestingUrl?: string }).requestingUrl ?? wc.getURL();
     callback(isAllowedNotificationUrl(url));
   });
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => {
+    if (isClipboardPermission(permission)) {
+      const url = resolveRequestingUrl(
+        details.requestingUrl,
+        details.embeddingOrigin,
+        requestingOrigin,
+      );
+      return allowClipboardPermission(permission, url);
+    }
     if (permission !== 'notifications') return false;
     if (!loadSettings().notificationsEnabled) return false;
     if (!requestingOrigin) return false;

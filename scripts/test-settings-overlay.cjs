@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, clipboard } = require('electron');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'arena-overlay-test-'));
 app.setPath('userData', userData);
@@ -92,6 +92,57 @@ async function run() {
     await original.webContents.executeJavaScript('document.querySelector("#draft").value'),
     'keep me',
   );
+
+  // 複製按鈕迴歸：網頁的 navigator.clipboard.writeText() 必須真的寫進系統剪貼簿。
+  // 過去 permission handler 對通知以外一律拒絕，網站收到 NotAllowedError，
+  // 使用者看到的現象就是「按下複製沒有作用」。
+  {
+    win.show();
+    win.focus();
+    original.webContents.focus();
+    // Clipboard API 要求 document.hasFocus()；CI 上視窗取得焦點可能慢一拍。
+    await waitFor(
+      () => original.webContents.executeJavaScript('document.hasFocus()'),
+      'content tab focused for clipboard write',
+    );
+    // 這個測試真正要釘住的是「權限決策」：writeText 必須被允許而不是被判
+    // NotAllowedError。把值讀回作業系統剪貼簿是額外的端到端確認，但它需要
+    // 互動式桌面 —— CI runner 常在非互動式 window station 上跑，OpenClipboard
+    // 會失敗。先探測環境能力，避免把環境限制誤報成程式迴歸。
+    const probe = `arena-probe-${Date.now()}`;
+    clipboard.writeText(probe);
+    const osClipboardUsable = clipboard.readText() === probe;
+
+    const marker = `arena-copy-${Date.now()}`;
+    clipboard.writeText('stale-value');
+    const writeResult = await original.webContents.executeJavaScript(
+      `navigator.clipboard.writeText(${JSON.stringify(marker)}).then(() => 'ok', (e) => String(e))`,
+      true, // userGesture：消毒過的寫入需要使用者手勢才會走 clipboard-sanitized-write
+    );
+    // 權限迴歸的核心斷言：任何環境都必須成立。
+    assert.equal(writeResult, 'ok', `clipboard.writeText must resolve, got: ${writeResult}`);
+
+    if (osClipboardUsable) {
+      // 系統剪貼簿可能被其他行程短暫鎖住，允許稍後才讀到。
+      await waitFor(() => clipboard.readText() === marker, 'copy reached the system clipboard');
+    } else {
+      console.log(
+        'NOTE: OS clipboard unavailable on this machine (non-interactive desktop); ' +
+          'verified the permission grant only, skipped the read-back assertion',
+      );
+    }
+
+    // 讀取仍須受限：非 Arena 網域（此處為測試伺服器）不得讀走剪貼簿內容。
+    const readResult = await original.webContents.executeJavaScript(
+      `navigator.clipboard.readText().then(() => 'granted', () => 'denied')`,
+      true,
+    );
+    assert.equal(readResult, 'denied', 'clipboard read must stay denied for non-Arena origins');
+    if (osClipboardUsable) {
+      assert.equal(clipboard.readText(), marker, 'denied read must not alter the clipboard');
+    }
+    clipboard.clear();
+  }
 
   // 設定期間建立／切換／導覽／關閉分頁都必須維持遮蔽狀態。
   await open();

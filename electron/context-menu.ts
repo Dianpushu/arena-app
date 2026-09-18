@@ -1,33 +1,67 @@
-import { Menu, WebContents } from 'electron';
+import { Menu, clipboard } from 'electron';
+import type { WebContents } from 'electron';
 import { openExternalHttp } from './navigation';
 import { isHttpUrl } from './url-policy';
 
-// 聊天 App 必備：輸入框右鍵（剪下/複製/貼上/全選）＋ 連結右鍵用系統瀏覽器開啟。
-// role 類選單的顯示文字會跟著系統語系自動中文化。
+// 聊天 App 必備：輸入框右鍵（剪下/複製/貼上/全選）＋ 連結右鍵複製或用系統瀏覽器開啟。
+//
+// 這裡刻意不用 role（'copy' / 'paste'…）：role 作用在「當前聚焦的 WebContents」上，
+// 而本 App 同時存在主 UI BrowserWindow 與多個內容 WebContentsView，
+// 右鍵的分頁未必是聚焦的那一個，會出現複製到別的頁面或整個沒作用。
+// 明確綁定發出 context-menu 事件的 WebContents 才不會選錯對象。
 
 export function attachContextMenu(contents: WebContents): void {
   contents.on('context-menu', (_e, params) => {
     const items: Electron.MenuItemConstructorOptions[] = [];
     const { editFlags, selectionText, linkURL } = params;
+    const selection = selectionText?.trim() ?? '';
+    const act = (fn: () => void) => () => {
+      if (!contents.isDestroyed()) fn();
+    };
 
     if (params.isEditable) {
       items.push(
-        { role: 'cut', enabled: editFlags.canCut },
-        { role: 'copy', enabled: editFlags.canCopy },
-        { role: 'paste', enabled: editFlags.canPaste },
+        {
+          label: '剪下',
+          accelerator: 'CmdOrCtrl+X',
+          enabled: editFlags.canCut,
+          click: act(() => contents.cut()),
+        },
+        {
+          label: '複製',
+          accelerator: 'CmdOrCtrl+C',
+          enabled: editFlags.canCopy,
+          click: act(() => contents.copy()),
+        },
+        {
+          label: '貼上',
+          accelerator: 'CmdOrCtrl+V',
+          enabled: editFlags.canPaste,
+          click: act(() => contents.paste()),
+        },
         { type: 'separator' },
-        { role: 'selectAll' },
+        { label: '全選', accelerator: 'CmdOrCtrl+A', click: act(() => contents.selectAll()) },
       );
-    } else if (selectionText && selectionText.trim()) {
-      items.push({ role: 'copy' }, { type: 'separator' }, { role: 'selectAll' });
+    } else if (selection) {
+      items.push(
+        { label: '複製', accelerator: 'CmdOrCtrl+C', click: act(() => contents.copy()) },
+        { type: 'separator' },
+        { label: '全選', accelerator: 'CmdOrCtrl+A', click: act(() => contents.selectAll()) },
+      );
     }
 
     if (isHttpUrl(linkURL)) {
       if (items.length > 0) items.push({ type: 'separator' });
-      items.push({
-        label: '在瀏覽器中開啟連結',
-        click: () => void openExternalHttp(linkURL).catch(console.error),
-      });
+      items.push(
+        {
+          label: '複製連結網址',
+          click: () => clipboard.writeText(linkURL),
+        },
+        {
+          label: '在瀏覽器中開啟連結',
+          click: () => void openExternalHttp(linkURL).catch(console.error),
+        },
+      );
     }
 
     if (items.length > 0) Menu.buildFromTemplate(items).popup();
