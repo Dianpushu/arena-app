@@ -9,6 +9,7 @@ import {
   browserShortcutAction,
   BrowserShortcut,
   crashAutoReload,
+  offlinePageQuery,
 } from './tab-utils';
 import { AppTheme, DEFAULT_HOMEPAGE, MAX_TABS, TabInfo, VIEW_TOP_OFFSET } from './shared';
 import { loadSettings } from './settings';
@@ -320,9 +321,11 @@ export class TabManager {
   updateTheme(theme: AppTheme): void {
     for (const tab of this.tabs.values()) {
       tab.view.setBackgroundColor(theme === 'dark' ? '#1c1917' : '#f5f0e8');
-      if (isSameDocument(tab.view.webContents.getURL(), pathToFileURL(offlinePagePath()).href)) {
+      const current = tab.view.webContents.getURL();
+      if (isSameDocument(current, pathToFileURL(offlinePagePath()).href)) {
+        // 保留原有的 reason（崩潰頁）：切換主題不該把崩潰文案打回一般離線頁。
         void tab.view.webContents
-          .loadFile(offlinePagePath(), { query: { theme } })
+          .loadFile(offlinePagePath(), { query: offlinePageQuery(theme, current) })
           .catch(console.error);
       }
     }

@@ -13,6 +13,7 @@ const {
   nextZoom,
   browserShortcutAction,
   crashAutoReload,
+  offlinePageQuery,
 } = require('../dist-electron/tab-utils');
 const { assertTrustedUI } = require('../dist-electron/ipc-security');
 
@@ -200,6 +201,21 @@ test('crashAutoReload stops reloading after repeated crashes, then recovers afte
   assert.equal(again.reload, true); // 第 3 次，仍可
   const overflow = crashAutoReload(again.crashTimes, t0 + 5_000 + 32_500);
   assert.equal(overflow.reload, false); // 第 4 次，擋下
+});
+
+// ---------- offline page reload query ----------
+test('offlinePageQuery keeps the crash reason when the theme changes', () => {
+  const offline = 'file:///app/public/offline.html';
+  // 崩潰頁（?reason=crash）：切換主題時必須保留 reason，否則文案會退回一般離線頁
+  assert.deepEqual(offlinePageQuery('light', `${offline}?theme=dark&reason=crash`), {
+    theme: 'light',
+    reason: 'crash',
+  });
+  // 一般離線頁：只帶主題
+  assert.deepEqual(offlinePageQuery('dark', `${offline}?theme=light`), { theme: 'dark' });
+  assert.deepEqual(offlinePageQuery('dark', offline), { theme: 'dark' });
+  // 目前網址解析不了時仍要能安全重載
+  assert.deepEqual(offlinePageQuery('dark', ''), { theme: 'dark' });
 });
 
 test('IPC requires the exact UI WebContents, main frame and UI document', () => {

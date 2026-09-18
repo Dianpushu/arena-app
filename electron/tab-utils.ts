@@ -1,3 +1,5 @@
+import type { AppTheme } from './shared';
+
 const ZOOM_STEPS = [25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500];
 
 /** 崩潰自動重載防迴圈：滾動時間窗（ms）與自動重載次數上限。 */
@@ -84,4 +86,19 @@ export function crashAutoReload(
   const next = crashTimes.filter((t) => now - t < windowMs);
   next.push(now);
   return { reload: next.length <= limit, crashTimes: next };
+}
+
+/**
+ * 重載離線頁時要帶的 query。主題一定要帶；若目前是崩潰頁（?reason=crash）則保留 reason，
+ * 否則切換深/淺色會把崩潰文案打回一般離線頁。網址無效時只帶 theme（維持原行為）。
+ */
+export function offlinePageQuery(theme: AppTheme, currentUrl: string): Record<string, string> {
+  const query: Record<string, string> = { theme };
+  try {
+    const reason = new URL(currentUrl).searchParams.get('reason');
+    if (reason) query.reason = reason;
+  } catch {
+    // 目前網址無法解析時只帶 theme
+  }
+  return query;
 }
