@@ -100,6 +100,11 @@ async function run() {
     win.show();
     win.focus();
     original.webContents.focus();
+    // Clipboard API 要求 document.hasFocus()；CI 上視窗取得焦點可能慢一拍。
+    await waitFor(
+      () => original.webContents.executeJavaScript('document.hasFocus()'),
+      'content tab focused for clipboard write',
+    );
     const marker = `arena-copy-${Date.now()}`;
     clipboard.writeText('stale-value');
     const writeResult = await original.webContents.executeJavaScript(
@@ -107,7 +112,8 @@ async function run() {
       true, // userGesture：消毒過的寫入需要使用者手勢才會走 clipboard-sanitized-write
     );
     assert.equal(writeResult, 'ok', `clipboard.writeText must resolve, got: ${writeResult}`);
-    assert.equal(clipboard.readText(), marker, 'copy button must reach the system clipboard');
+    // Windows 上系統剪貼簿可能被其他行程短暫鎖住，允許稍後才讀到。
+    await waitFor(() => clipboard.readText() === marker, 'copy reached the system clipboard');
 
     // 讀取仍須受限：非 Arena 網域（此處為測試伺服器）不得讀走剪貼簿內容。
     const readResult = await original.webContents.executeJavaScript(
