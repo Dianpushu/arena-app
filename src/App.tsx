@@ -61,14 +61,17 @@ export default function App() {
     const offUpdate = arena.app.onUpdateStatus(setUpdate);
     // 內容分頁持有焦點時按 Ctrl+L / Ctrl+T：主進程把焦點交回 UI 並觸發網址列聚焦。
     const offFocusUrl = arena.window.onFocusUrl(() => setUrlFocusToken((n) => n + 1));
+    // 主進程的提示（例如從內容分頁按 Ctrl+T 但已達分頁上限）。
+    const offNotice = arena.ui.onNotice(notify);
     return () => {
       offTabs();
       offSettings();
       offMax();
       offUpdate();
       offFocusUrl();
+      offNotice();
     };
-  }, []);
+  }, [notify]);
 
   // WebContentsView 不受 CSS z-index 控制；讓主進程同步原生視圖可見性。
   useEffect(() => {

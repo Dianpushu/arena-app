@@ -96,6 +96,10 @@ export interface ArenaAPI {
     /** 內容分頁的 Ctrl+L / Ctrl+T：主進程把焦點交回 UI，並要求聚焦網址列。 */
     onFocusUrl: (cb: () => void) => () => void;
   };
+  ui: {
+    /** 主進程要求 UI 顯示一則提示（例如從內容分頁觸發的 Ctrl+T 撞到分頁上限）。 */
+    onNotice: (cb: (text: string) => void) => () => void;
+  };
   settings: {
     /** 暫時隱藏原生網頁內容，讓本機設定面板可見；不寫入使用者設定。 */
     setOpen: (open: boolean) => Promise<void>;

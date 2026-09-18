@@ -364,6 +364,8 @@ export class TabManager {
           this.createTab();
         } catch (err) {
           console.warn('[tabs] shortcut new-tab failed:', err);
+          // 跟 UI 端 Ctrl+T 一樣要讓使用者看到原因（例如已達分頁上限）。
+          this.notifyUI(String(err));
           return;
         }
         // 跟 UI 端 Ctrl+T 行為一致：開新分頁後聚焦網址列。
@@ -401,6 +403,12 @@ export class TabManager {
     if (this.win.isDestroyed()) return;
     this.win.webContents.focus();
     this.win.webContents.send('arena:ui:focus-url');
+  }
+
+  /** 請主 UI 顯示一則提示（main → renderer 單向通知，不涉及特權 invoke）。 */
+  private notifyUI(text: string): void {
+    if (this.win.isDestroyed()) return;
+    this.win.webContents.send('arena:ui:notice', text);
   }
 
   private wireEvents(tab: Tab): void {

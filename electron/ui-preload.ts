@@ -39,6 +39,9 @@ const api: ArenaAPI = {
       return off;
     },
   },
+  ui: {
+    onNotice: (cb: (text: string) => void) => sub('arena:ui:notice', cb),
+  },
   settings: {
     setOpen: (open: boolean) => ipcRenderer.invoke('arena:settings:set-open', open),
     get: () => ipcRenderer.invoke('arena:settings:get'),

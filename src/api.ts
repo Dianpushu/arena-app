@@ -172,6 +172,9 @@ function createMockApi(): ArenaAPI {
       onMaximized: sub(maxListeners),
       onFocusUrl: () => () => {},
     },
+    ui: {
+      onNotice: () => () => {},
+    },
     settings: {
       setOpen: async () => {},
       get: async () => ({ ...settings }),
